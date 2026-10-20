@@ -14,6 +14,10 @@ SEED_DEMO=true ADMIN_PASSWORD='TroqueEsta1' npm start   # http://localhost:3000
 `SEED_DEMO=true` cria dados fictícios e usuários demo (senha `Painel@2026`, ex.: `superintendente@educacao.mg.gov.br`,
 `diretor.dipe@educacao.mg.gov.br`, `coord1@educacao.mg.gov.br`). **Nunca use em produção.**
 
+## Rodar sem tela de login (só para testes locais)
+Defina `AUTH_DISABLED=true` e o sistema entra automaticamente como o primeiro administrador
+(`AUTH_DISABLED_EMAIL=coord1@educacao.mg.gov.br` entra como outro usuário, para testar perfis). É ignorado se `NODE_ENV=production`.
+
 ## Deploy no Render
 1. Render › New › **Blueprint** › selecione este repositório (usa `render.yaml`: web service + PostgreSQL).
 2. Preencha `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `PUBLIC_URL`. O schema e a estrutura de unidades/setores são criados na primeira inicialização.

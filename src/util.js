@@ -16,8 +16,26 @@ function signToken(user) {
   return jwt.sign({ uid: user.id }, SECRET, { expiresIn: '12h' });
 }
 
+// Modo teste: AUTH_DISABLED=true entra automaticamente como um usuário (nunca em produção).
+// AUTH_DISABLED_EMAIL escolhe quem; sem ele, usa o primeiro administrador.
+const SEM_LOGIN = process.env.AUTH_DISABLED === 'true' && process.env.NODE_ENV !== 'production';
+if (SEM_LOGIN) console.warn('[ATENÇÃO] AUTH_DISABLED=true: login desligado (apenas para testes locais).');
+
+const USER_SELECT = `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.ativo,
+                un.sigla as unit_sigla, s.nome as sector_nome
+           from users u left join units un on un.id = u.unit_id
+           left join sectors s on s.id = u.sector_id`;
+
 async function loadUser(req, _res, next) {
   try {
+    if (SEM_LOGIN) {
+      const email = (process.env.AUTH_DISABLED_EMAIL || '').toLowerCase();
+      const { rows } = email
+        ? await q(`${USER_SELECT} where u.ativo and u.email = $1`, [email])
+        : await q(`${USER_SELECT} where u.ativo and u.perfil = 'admin' order by u.id limit 1`);
+      if (rows[0]) req.user = rows[0];
+      return next();
+    }
     const token = req.cookies && req.cookies.token;
     if (token) {
       const { uid } = jwt.verify(token, SECRET);
