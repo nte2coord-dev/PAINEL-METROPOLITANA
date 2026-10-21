@@ -60,7 +60,7 @@ aplicaTema();
 
 // ---------- diálogo de formulário genérico ----------
 // campos: {name,label,type,required,options,hint,full}
-function formDialog({ titulo, campos, valores = {}, enviar, rotuloOk = 'Salvar', extra }) {
+function formDialog({ titulo, campos, valores = {}, enviar, rotuloOk = 'Salvar', extra, contexto }) {
   return new Promise(resolve => {
     const dlg = document.createElement('dialog');
     const campo = c => {
@@ -80,7 +80,7 @@ function formDialog({ titulo, campos, valores = {}, enviar, rotuloOk = 'Salvar',
       }
       return html`<div class="field" style="${c.full ? 'grid-column:1/-1' : ''}"><label for="f_${c.name}" class="${c.required ? 'req' : ''}">${c.label}</label>${input}${c.hint ? html`<div class="hint">${c.hint}</div>` : ''}</div>`;
     };
-    dlg.innerHTML = html`<form method="dialog"><h2>${titulo}</h2><div id="fe"></div><div class="grid2">${campos.map(campo)}</div>
+    dlg.innerHTML = html`<form method="dialog"><h2>${titulo}</h2>${contexto || ''}<div id="fe"></div><div class="grid2">${campos.map(campo)}</div>
       ${extra || ''}<div class="actions"><button type="button" data-x="cancel">Cancelar</button><button class="btn-primary" type="submit">${rotuloOk}</button></div></form>`.s;
     document.body.append(dlg); dlg.showModal();
     const form = $('form', dlg);
@@ -239,11 +239,11 @@ function recentes(lista) {
 
 function tabelaDemandas(lista, { mostraSetor = true } = {}) {
   if (!lista.length) return vazio('Nenhuma demanda encontrada', 'Ajuste os filtros ou lance uma nova demanda.');
-  return html`<div class="tablewrap"><table><thead><tr><th>Processo</th><th>Assunto</th>${mostraSetor ? html`<th>Setor</th>` : ''}<th>Prazo</th><th>Situação</th><th>Prioridade</th><th>Responsável</th></tr></thead><tbody>
+  return html`<div class="tablewrap"><table><thead><tr><th>Processo</th><th>Assunto</th>${mostraSetor ? html`<th>Setor</th>` : ''}<th>Prazo</th><th>Situação</th><th>Prioridade</th><th>Responsável</th>${podeAlertar() ? html`<th class="no-print"></th>` : ''}</tr></thead><tbody>
     ${lista.map(d => html`<tr><td><a href="#/demanda/${d.id}">${d.processo}</a></td><td>${d.assunto}</td>
       ${mostraSetor ? html`<td>${d.unidade} · ${d.setor}</td>` : ''}
       <td>${fmtData(d.prazo)}${d.prazo_status === 'fora' ? html` <span class="small muted">(${-d.dias_para_vencer}d de atraso)</span>` : ''}</td>
-      <td>${tagPrazo(d.prazo_status)}<div class="small muted">${STATUS[d.status]}</div></td><td>${PRIOR[d.prioridade]}</td><td>${d.responsavel || '–'}</td></tr>`)}</tbody></table></div>`;
+      <td>${tagPrazo(d.prazo_status)}<div class="small muted">${STATUS[d.status]}</div></td><td>${PRIOR[d.prioridade]}</td><td>${d.responsavel || '–'}</td>${podeAlertar() && !['concluida', 'cancelada'].includes(d.status) ? html`<td class="no-print"><button class="btn-sm icon-btn" data-act="alerta" data-demanda="${d.id}" data-sector="${d.sector_id}" title="Enviar alerta sobre esta demanda" aria-label="Enviar alerta sobre a demanda ${d.processo}">${ico('bell')}</button></td>` : (podeAlertar() ? html`<td></td>` : '')}</tr>`)}</tbody></table></div>`;
 }
 
 // ---------- páginas ----------
@@ -391,13 +391,13 @@ async function viewLista(params) {
 }
 
 async function viewDemanda(id) {
-  const [d, ac, aud] = await Promise.all([api('/demandas/' + id), api(`/demandas/${id}/acompanhamentos`),
+  const [d, ac, alertasD, aud] = await Promise.all([api('/demandas/' + id), api(`/demandas/${id}/acompanhamentos`), api(`/demandas/${id}/alertas`),
     ['admin', 'superintendente'].includes(state.user.perfil) ? api(`/auditoria?entidade=demandas&entidade_id=${id}`) : []]);
   const pode = podeLancar(d.sector_id);
   const podeComentar = pode || state.user.perfil === 'diretor' || state.user.perfil === 'superintendente';
   const campo = (l, v) => html`<div><div class="small muted">${l}</div>${v}</div>`;
   return { titulo: d.processo, sub: d.assunto, crumbs: [['#/', 'Visão Geral'], [`#/setor/${d.sector_id}`, d.setor], [null, d.processo]],
-    acoes: html`${pode ? html`<button data-act="edit-demanda" data-id="${d.id}">Editar</button><button class="btn-danger" data-act="del-demanda" data-id="${d.id}" data-sector="${d.sector_id}">Excluir</button>` : ''}${podeAlertar() ? html`<button data-act="alerta" data-sector="${d.sector_id}" data-demanda="${d.id}">Cobrar</button>` : ''}`,
+    acoes: html`${pode ? html`<button data-act="edit-demanda" data-id="${d.id}">Editar</button><button class="btn-danger" data-act="del-demanda" data-id="${d.id}" data-sector="${d.sector_id}">Excluir</button>` : ''}${podeAlertar() && !['concluida', 'cancelada'].includes(d.status) ? html`<button class="btn-primary" data-act="alerta" data-sector="${d.sector_id}" data-demanda="${d.id}">${ico('bell')} Enviar alerta</button>` : ''}`,
     corpo: html`<div class="grid g-2"><section class="card"><h2>Dados</h2><div class="grid2" style="gap:12px 14px">
       ${campo('Situação do prazo', tagPrazo(d.prazo_status))}${campo('Status', STATUS[d.status])}${campo('Setor', `${d.unidade} · ${d.setor}`)}
       ${campo('Tipo', d.tipo || '–')}${campo('Origem', ORIGEM[d.origem])}${campo('Prioridade', PRIOR[d.prioridade])}
@@ -405,6 +405,7 @@ async function viewDemanda(id) {
       ${campo('Responsável', d.responsavel || '–')}</div>${d.observacoes ? html`<h3 class="mt">Observações</h3><p>${d.observacoes}</p>` : ''}</section>
       <section class="card"><div class="row between"><h2>Linha do tempo</h2>${podeComentar ? html`<button class="btn-sm" data-act="novo-acomp" data-id="${d.id}">+ Registro</button>` : ''}</div>
       ${ac.length ? html`<div class="timeline">${ac.map(a => html`<div class="it"><b>${TIPO_ACOMP[a.tipo]}</b> <span class="muted small">${fmtData(a.data)} · ${a.autor || '—'}</span><div>${a.texto}</div></div>`)}</div>` : vazio('Sem registros', 'Registre contatos, despachos e andamentos.')}</section></div>
+      <section class="card mt"><h2>Alertas desta demanda</h2>${alertasD.length ? alertasD.map(a => html`<div class="item" style="display:block"><div class="row between"><b>${a.de}</b><span class="small muted">${fmtDataHora(a.created_at)} · ${a.lido_em ? 'lido' : 'não lido'}</span></div><div>${a.mensagem}</div></div>`) : html`<p class="muted" style="margin:0">Nenhum alerta enviado para esta demanda.</p>`}</section>
       ${aud.length ? html`<section class="card mt"><h2>Trilha de auditoria</h2><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Quem</th><th>O quê</th></tr></thead><tbody>${aud.map(a => html`<tr><td>${fmtDataHora(a.em)}</td><td>${a.user_email || '—'}</td><td>${a.acao}</td></tr>`)}</tbody></table></div></section>` : ''}` };
 }
 
@@ -413,7 +414,7 @@ async function viewAlertas() {
   return { titulo: 'Alertas', sub: 'Mensagens de cobrança e avisos', acoes: podeAlertar() ? html`<button class="btn-primary" data-act="alerta">+ Novo alerta</button>` : '',
     corpo: lista.length ? html`<div class="grid">${lista.map(a => html`<div class="card alert-it ${a.lido_em ? 'lido' : ''}"><div class="row between"><b>${a.setor ? `${a.unidade} · ${a.setor}` : a.unidade || 'Todos os setores'}</b>
       <span class="small muted">${fmtDataHora(a.created_at)} · de ${a.de}</span></div><p>${a.mensagem}</p>
-      ${a.processo ? html`<div class="small">Processo: <a href="#/demanda/${a.demanda_id}">${a.processo}</a></div>` : ''}
+      ${a.processo ? html`<div class="small">Demanda: <a href="#/demanda/${a.demanda_id}">${a.processo}</a> – ${a.assunto}</div>` : ''}
       ${a.lido_em ? '' : html`<button class="btn-sm" data-act="lido" data-id="${a.id}">Marcar como lido</button>`}</div>`)}</div>` : html`<div class="card">${vazio('Nenhum alerta', 'Quando houver cobranças, elas aparecem aqui.')}</div>` };
 }
 
@@ -530,6 +531,7 @@ const acoes = {
       } });
   },
   async alerta(el, d) {
+    if (d.demanda) return alertaDemanda(d.demanda);
     const setoresOpc = state.sectors.map(s => [s.id, `${s.unidade} · ${s.nome}`]);
     await formDialog({ titulo: 'Enviar alerta', rotuloOk: 'Enviar', enviar: x => api('/alertas', { method: 'POST', body: { ...x, demanda_id: d.demanda ? Number(d.demanda) : null } }),
       valores: { sector_id: d.sector || '', unit_id: d.unit || '' }, campos: [
@@ -564,6 +566,25 @@ const acoes = {
   async 'csv-fora'() { baixarCsv(await api('/demandas?limit=1000&prazo_status=fora'), 'demandas-fora-do-prazo.csv'); },
   imprimir() { window.print(); },
 };
+
+const MODELOS_ALERTA = [
+  ['Prazo vencendo: favor priorizar a conclusão desta demanda.', 'Prazo vencendo'],
+  ['Prazo vencido: informe o andamento e a nova previsão de conclusão.', 'Prazo vencido'],
+  ['Há pendência que impede o andamento: informe o motivo e o responsável.', 'Pendência / impedimento'],
+  ['Solicito atualização sobre esta demanda.', 'Solicitar atualização'],
+];
+async function alertaDemanda(id) {
+  const d = await api('/demandas/' + id);
+  const modelo = MODELOS_ALERTA[d.prazo_status === 'fora' ? 1 : d.prazo_status === 'breve' ? 0 : 3][0];
+  await formDialog({ titulo: 'Enviar alerta sobre a demanda', rotuloOk: 'Enviar alerta', valores: { mensagem: modelo },
+    enviar: x => api('/alertas', { method: 'POST', body: { demanda_id: Number(id), mensagem: x.mensagem } }),
+    campos: [{ name: 'mensagem', label: 'Mensagem', type: 'textarea', required: true, full: true, max: 1000 }],
+    contexto: html`<div class="card" style="background:var(--surface-2);box-shadow:none;margin-bottom:14px;padding:14px">
+      <div class="row between"><b>${d.processo}</b>${tagPrazo(d.prazo_status)}</div><div>${d.assunto}</div>
+      <div class="small muted">Para: ${d.unidade} · ${d.setor} · Prazo ${fmtData(d.prazo)}${d.responsavel ? ' · Resp.: ' + d.responsavel : ''}</div></div>
+      <div class="field"><label for="modelo-al">Mensagens prontas</label><select id="modelo-al" data-modelo-alerta><option value="">— escolher para preencher —</option>${MODELOS_ALERTA.map(([t, r]) => html`<option value="${t}">${r}</option>`)}</select></div>`,
+  });
+}
 
 function camposDemanda() {
   return [
@@ -731,6 +752,7 @@ document.addEventListener('click', async ev => {
 });
 
 document.addEventListener('change', ev => {
+  if (ev.target.matches('[data-modelo-alerta]') && ev.target.value) { ev.target.closest('form').elements.mensagem.value = ev.target.value; return; }
   if (ev.target.matches('[data-modelo]') && ev.target.value !== '') {
     const m = window._modelos?.[Number(ev.target.value)]; const f = ev.target.closest('form'); if (!m) return;
     f.elements.nome.value = m.nome; f.elements.meta.value = m.meta; f.elements.unidade.value = m.unidade; f.elements.menor_melhor.checked = m.menor_melhor;

@@ -193,7 +193,7 @@ router.get('/alertas', wrap(async (req, res) => {
     w = `(a.unit_id = $1 or a.de_user_id = $2)`;
   }
   res.json((await q(
-    `select a.*, usr.nome as de, un.sigla as unidade, s.nome as setor, d.processo
+    `select a.*, usr.nome as de, un.sigla as unidade, s.nome as setor, d.processo, d.assunto
        from alertas a join users usr on usr.id = a.de_user_id
        left join units un on un.id = a.unit_id left join sectors s on s.id = a.sector_id
        left join demandas d on d.id = a.demanda_id
@@ -204,17 +204,32 @@ router.post('/alertas', requireRole('admin', 'superintendente', 'diretor'), wrap
   const mensagem = str(req.body.mensagem, 1000);
   if (!mensagem) throw new HttpError(400, 'Escreva a mensagem do alerta.');
   let unitId = req.body.unit_id ? Number(req.body.unit_id) : null;
-  const sectorId = req.body.sector_id ? Number(req.body.sector_id) : null;
-  if (req.user.perfil === 'diretor') {
+  let sectorId = req.body.sector_id ? Number(req.body.sector_id) : null;
+  const demandaId = req.body.demanda_id ? Number(req.body.demanda_id) : null;
+  if (demandaId) {
+    // Alerta de demanda: o destino é sempre o setor responsável (não vem do cliente)
+    const { rows: [d] } = await q(`select sector_id, status from demandas where id = $1`, [demandaId]);
+    if (!d || !(await canSeeSector(req.user, d.sector_id))) throw new HttpError(404, 'Demanda não encontrada.');
+    sectorId = d.sector_id;
+  } else if (req.user.perfil === 'diretor') {
     unitId = req.user.unit_id;
     if (sectorId && !(await canSeeSector(req.user, sectorId))) throw new HttpError(403, 'Setor fora da sua unidade.');
   }
   if (sectorId) unitId = (await q(`select unit_id from sectors where id = $1`, [sectorId])).rows[0]?.unit_id ?? unitId;
   const { rows } = await q(
     `insert into alertas (de_user_id, unit_id, sector_id, demanda_id, mensagem) values ($1,$2,$3,$4,$5) returning *`,
-    [req.user.id, unitId, sectorId, req.body.demanda_id ? Number(req.body.demanda_id) : null, mensagem]);
+    [req.user.id, unitId, sectorId, demandaId, mensagem]);
   await audit(req, 'criar', 'alertas', rows[0].id, null, rows[0]);
   res.status(201).json(rows[0]);
+}));
+
+// Alertas de uma demanda específica (quem enxerga a demanda enxerga seus alertas)
+router.get('/demandas/:id/alertas', wrap(async (req, res) => {
+  const { rows: [d] } = await q(`select sector_id from demandas where id = $1`, [req.params.id]);
+  if (!d || !(await canSeeSector(req.user, d.sector_id))) throw new HttpError(404, 'Demanda não encontrada.');
+  res.json((await q(
+    `select a.id, a.mensagem, a.created_at, a.lido_em, usr.nome as de from alertas a join users usr on usr.id = a.de_user_id
+      where a.demanda_id = $1 order by a.created_at desc`, [req.params.id])).rows);
 }));
 
 router.post('/alertas/:id/lido', wrap(async (req, res) => {
