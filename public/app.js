@@ -40,7 +40,7 @@ function toast(msg, err) {
   $('#toasts').append(t); setTimeout(() => t.remove(), 4500);
 }
 
-const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0 };
+const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0, navAberto: new Set() };
 const isAdmin = () => state.user.perfil === 'admin';
 const podeAlertar = () => ['admin', 'superintendente', 'diretor'].includes(state.user.perfil);
 const podeLancar = sid => isAdmin() || (state.user.perfil === 'coord_setor' && state.user.sector_id === Number(sid));
@@ -109,23 +109,62 @@ const confirmar = msg => new Promise(res => {
 const skeleton = () => html`<div class="grid g-kpi">${[1, 2, 3, 4, 5].map(() => html`<div class="skel"></div>`)}</div><div class="skel mt" style="height:260px"></div>`;
 const vazio = (t, d) => html`<div class="empty"><b>${t}</b>${d || ''}</div>`;
 
+const ICONS = {
+  clip: '<rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 13h6M9 17h4"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  alert: '<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/>',
+  trend: '<path d="m3 17 6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  building: '<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/>',
+  hash: '<path d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8.1 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/>',
+  pin: '<path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  chev: '<path d="m9 6 6 6-6 6"/>',
+  grad: '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
+  home: '<path d="M3 11 12 3l9 8"/><rect x="4" y="11" width="16" height="10"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  list: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  doc: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+  book: '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v17H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>',
+};
+const ico = (n, cls = '') => new Raw(`<svg class="ic ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`);
+
 function kpis(k, base = '') {
-  const item = (cls, n, rot, filtro) => html`<a class="card kpi ${cls}" href="#/lista?${base}${filtro}"><b>${n}</b><span>${rot}</span></a>`;
-  return html`<div class="grid g-kpi" role="list">
-    ${item('', k.total, 'Total de demandas', '')}
-    ${item('ok', k.no_prazo + k.vence_em_breve, `No prazo (${k.vence_em_breve} vencem em breve)`, '&prazo_status=no_prazo')}
-    ${item('bad', k.fora_do_prazo, 'Fora do prazo', '&prazo_status=fora')}
-    ${item('done', k.concluidas, 'Concluídas', '&prazo_status=concluida')}
-    ${item('', k.pendentes, 'Pendentes (em aberto)', '&aberta=1')}</div>`;
+  const item = (cls, ic, n, rot, filtro) => html`<a class="card kpi ${cls}" href="#/lista?${base}${filtro}"><div class="tile">${ico(ic)}</div><b>${n}</b><span>${rot}</span></a>`;
+  return html`<div class="grid g-kpi">
+    ${item('', 'clip', k.total, 'Total de Demandas', '')}
+    ${item('ok', 'clock', k.no_prazo + k.vence_em_breve, k.vence_em_breve ? `No Prazo (${k.vence_em_breve} vencem em breve)` : 'No Prazo', '&prazo_status=no_prazo')}
+    ${item('bad', 'alert', k.fora_do_prazo, 'Fora do Prazo', '&prazo_status=fora')}
+    ${item('done', 'check', k.concluidas, 'Concluídas', '&prazo_status=concluida')}
+    ${item('warn', 'trend', k.pendentes, 'Pendentes', '&aberta=1')}</div>`;
 }
 
-function barrasEmpilhadas(unidades) {
-  const seg = (n, tot, cls) => (tot ? html`<i class="s-${cls}" style="width:${100 * n / tot}%" title="${PRAZO[cls]}: ${n}"></i>` : '');
-  return html`${unidades.map(u => html`<div class="hbar" style="grid-template-columns:100px 1fr 44px"><span class="lbl">${u.sigla}</span>
-      <div class="bar" role="img" aria-label="${u.sigla}: ${u.no_prazo} no prazo, ${u.vence_em_breve} vencem em breve, ${u.fora_do_prazo} fora do prazo, ${u.concluidas} concluídas">
-      ${seg(u.no_prazo, u.total, 'no_prazo')}${seg(u.vence_em_breve, u.total, 'breve')}${seg(u.fora_do_prazo, u.total, 'fora')}${seg(u.concluidas, u.total, 'concluida')}</div>
-      <b>${u.total}</b></div>`)}
-    <div class="legend">${['no_prazo', 'breve', 'fora', 'concluida'].map(c => html`<span><i class="s-${c}"></i>${PRAZO[c]}</span>`)}</div>`;
+// Barras verticais empilhadas por unidade: no prazo (verde), concluídas (azul), fora do prazo (vermelho)
+function graficoUnidades(unidades) {
+  const W = 640, H = 300, p = { l: 34, r: 8, t: 12, b: 28 };
+  const tot = u => u.no_prazo + u.vence_em_breve + u.concluidas + u.fora_do_prazo;
+  const max = Math.max(4, ...unidades.map(tot));
+  const passo = Math.max(1, Math.ceil(max / 4)); const topo = passo * 4;
+  const y = v => H - p.b - (v * (H - p.t - p.b)) / topo;
+  const bw = Math.min(100, ((W - p.l - p.r) / unidades.length) * 0.8);
+  const cx = i => p.l + ((i + 0.5) * (W - p.l - p.r)) / unidades.length;
+  const bars = unidades.map((u, i) => {
+    let acc = 0;
+    const seg = (n, cor, rot) => { if (!n) return ''; const r = html`<rect x="${cx(i) - bw / 2}" y="${y(acc + n)}" width="${bw}" height="${y(acc) - y(acc + n)}" fill="${cor}"><title>${u.sigla} – ${rot}: ${n}</title></rect>`; acc += n; return r; };
+    return html`${seg(u.no_prazo + u.vence_em_breve, 'var(--ok)', 'No prazo')}${seg(u.concluidas, 'var(--done)', 'Concluídas')}${seg(u.fora_do_prazo, 'var(--bad)', 'Fora do prazo')}
+      <text x="${cx(i)}" y="${H - 8}" text-anchor="middle">${u.sigla}</text>`;
+  });
+  const grade = [0, 1, 2, 3, 4].map(f => f * passo);
+  return html`<div class="vchart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Demandas por unidade, empilhadas por situação">
+    ${grade.map(g => html`<line x1="${p.l}" x2="${W - p.r}" y1="${y(g)}" y2="${y(g)}" stroke="var(--border)" stroke-dasharray="3 4"/><text x="${p.l - 8}" y="${y(g) + 4}" text-anchor="end">${g}</text>`)}
+    ${bars}</svg></div>`;
 }
 
 function linhas(evolucao) {
@@ -166,12 +205,35 @@ function mapaCalor(linhasCalor) {
     })}</tr>`)}</tbody></table></div><div class="hint">Demandas em atraso, agrupadas pela semana do prazo (8 últimas semanas).</div>`;
 }
 
+const eDiretoria = u => /^(DAFI|DIPE|DIRE)/i.test(u.sigla);
+const valInd = i => (i.unidade === 'pct' ? `${i.realizado}%` : `${i.realizado}/${i.meta}${i.unidade === 'dias' ? ' dias' : ' un'}`);
+const pctInd = i => (i.menor_melhor ? (i.realizado ? Math.min(100, 100 * i.meta / i.realizado) : 100) : Math.min(100, 100 * i.realizado / (i.meta || 1)));
+
 function cartoesUnidades(lista) {
-  return html`<div class="grid g-units">${lista.map(u => html`<a class="card unit" href="#/unidade/${u.id}">
-    <div class="row between"><b>${u.sigla}</b><span class="row small" style="gap:6px"><span class="dot ${u.semaforo}" aria-hidden="true"></span>${{ verde: 'Em dia', amarelo: 'Atenção', vermelho: 'Crítico', cinza: 'Sem dados' }[u.semaforo]}</span></div>
-    <div class="big">${u.pct_no_prazo == null ? '–' : u.pct_no_prazo + '%'} <span class="muted small">no prazo</span></div>
-    <div class="small">${u.fora_do_prazo} fora do prazo · ${u.total} demandas</div>
-    <div class="small trend ${u.tendencia > 0 ? 'up' : u.tendencia < 0 ? 'down' : 'muted'}">${u.tendencia == null ? 'Tendência: sem base de comparação' : (u.tendencia > 0 ? '▲ +' : u.tendencia < 0 ? '▼ ' : '● ') + u.tendencia + ' p.p. vs. 30 dias anteriores'}</div></a>`)}</div>`;
+  return html`<div class="g-unit-cards">${lista.map(u => {
+    const pc = u.total ? Math.round(100 * u.concluidas / u.total) : 0;
+    return html`<a class="card ucard" href="#/unidade/${u.id}">
+      <div class="head"><div class="tile">${ico('building')}</div>
+        <div><div class="nm">${u.sigla} <span class="pill">${eDiretoria(u) ? 'Diretoria' : 'Coordenação'}</span></div><div class="small muted">${u.nome}</div></div>
+        <span class="arrow">${ico('arrow')}</span></div>
+      <div class="mini3"><div><b>${u.total}</b><span>Demandas</span></div><div class="g"><b>${u.no_prazo + u.vence_em_breve}</b><span>No prazo</span></div><div class="r"><b>${u.fora_do_prazo}</b><span>Fora</span></div></div>
+      <div class="lrow"><span>Concluídas</span><span>${pc}%</span></div><div class="prog"><i style="width:${pc}%"></i></div>
+      ${(u.indicadores || []).length ? html`<div class="sect-label">Indicadores</div>${u.indicadores.map(i => html`<div class="lrow"><span>${i.nome}</span><span>${valInd(i)}</span></div>
+        <div class="prog"><i class="${pctInd(i) >= 100 ? 'ok' : ''}" style="width:${pctInd(i)}%"></i></div>`)}` : ''}
+      <div class="small trend ${u.tendencia > 0 ? 'up' : u.tendencia < 0 ? 'down' : 'muted'}">${u.tendencia == null ? '' : (u.tendencia > 0 ? '▲ +' : u.tendencia < 0 ? '▼ ' : '● ') + u.tendencia + ' p.p. no prazo vs. 30 dias anteriores'}</div></a>`;
+  })}</div>`;
+}
+
+function situacaoUnidades(lista) {
+  return html`${lista.map(u => { const pc = u.total ? Math.round(100 * u.concluidas / u.total) : 0;
+    return html`<div style="margin-bottom:14px"><div class="lrow"><b>${u.sigla}</b><span>${pc}%</span></div><div class="prog" style="height:8px"><i style="width:${pc}%"></i></div></div>`; })}
+    <div class="hint">Percentual de demandas concluídas por unidade.</div>`;
+}
+
+function recentes(lista) {
+  if (!lista.length) return vazio('Nenhuma demanda ainda');
+  return html`<div class="recent">${lista.map(d => html`<a href="#/demanda/${d.id}"><div class="t"><span class="pill">${d.unidade}</span><b>${d.assunto}</b></div>
+    <div class="meta">${d.processo} · Prazo: ${fmtData(d.prazo)}</div></a>`)}</div>`;
 }
 
 function tabelaDemandas(lista, { mostraSetor = true } = {}) {
@@ -187,51 +249,84 @@ function tabelaDemandas(lista, { mostraSetor = true } = {}) {
 async function paginaGeral(params, escopo = {}) {
   const qs = new URLSearchParams(escopo).toString();
   const [r, prox] = await Promise.all([api('/dashboard/resumo?' + qs), api('/dashboard/proximos?' + qs)]);
-  const unidade = escopo.unit_id ? state.units.find(u => u.id === Number(escopo.unit_id)) : null;
   const base = qs ? qs + '&' : '';
-  return html`
-    ${kpis(r.kpis, base)}
-    ${!escopo.unit_id && !escopo.sector_id ? html`<h2 class="mt">Unidades</h2>${cartoesUnidades(r.porUnidade)}` : ''}
+  const geral = !escopo.unit_id && !escopo.sector_id;
+  const extras = html`
     <div class="grid g-2 mt">
-      <section class="card"><h2>Demandas por ${escopo.unit_id ? 'unidade' : 'unidade'} e situação</h2>${barrasEmpilhadas(r.porUnidade)}</section>
       <section class="card"><h2>Evolução mensal</h2>${linhas(r.evolucao)}</section>
       <section class="card"><h2>Setores com mais atrasos</h2>${ranking(r.ranking)}</section>
-      <section class="card"><h2>Mapa de calor: setor × semana</h2>${mapaCalor(r.calor)}</section>
     </div>
+    <section class="card mt"><h2>Mapa de calor: setor × semana</h2>${mapaCalor(r.calor)}</section>
     <section class="card mt"><h2>Vencimentos e atrasos (próximos 7 dias)</h2>${prox.length ? html`<div class="tablewrap"><table><thead><tr><th>Processo</th><th>Assunto</th><th>Setor</th><th>Prazo</th><th>Situação</th></tr></thead><tbody>
       ${prox.map(d => html`<tr><td><a href="#/demanda/${d.id}">${d.processo}</a></td><td>${d.assunto}</td><td>${d.unidade} · ${d.setor}</td><td>${fmtData(d.prazo)}</td><td>${tagPrazo(d.prazo_status)}</td></tr>`)}</tbody></table></div>` : vazio('Nada vencendo nos próximos dias')}</section>`;
+  if (!geral) return html`${kpis(r.kpis, base)}${extras}`;
+  return html`${kpis(r.kpis, base)}
+    <div class="layout-2 mt" style="grid-template-columns:minmax(0,1fr) 380px">
+      <section class="card"><div class="row between"><h2>Demandas por Unidade</h2>
+        <div class="legend-top"><span><i style="background:var(--ok)"></i>No prazo</span><span><i style="background:var(--bad)"></i>Fora do prazo</span><span><i style="background:var(--done)"></i>Concluídas</span></div></div>
+        ${graficoUnidades(r.porUnidade)}</section>
+      <section class="card"><h2>Situação das Unidades</h2>${situacaoUnidades(r.porUnidade)}</section>
+    </div>
+    <div class="layout-2 mt" style="grid-template-columns:minmax(0,1fr) 380px">
+      <div><h2>Unidades</h2>${cartoesUnidades(r.porUnidade)}</div>
+      <section class="card"><h2>Demandas Recentes</h2>${recentes(r.recentes)}</section>
+    </div>${extras}`;
 }
 
 async function viewGeral() {
   const u = state.user;
   if (u.perfil === 'coord_setor') return go(`#/setor/${u.sector_id}`);
   if (u.perfil === 'diretor') return go(`#/unidade/${u.unit_id}`);
-  return { titulo: 'Visão Geral', sub: 'Superintendência Regional de Ensino Metropolitana A', corpo: await paginaGeral() };
+  return { titulo: 'Painel da Superintendência Regional de Ensino', sub: 'Acompanhamento das diretorias e coordenações — SRE Metropolitana A',
+    tags: [['solid', 'Superintendência'], ['', 'Visão geral de todas as unidades']], corpo: await paginaGeral() };
 }
 
 async function viewUnidade(id) {
   const un = state.units.find(x => x.id === Number(id));
   if (!un) return { titulo: 'Unidade não encontrada', corpo: vazio('Unidade não encontrada ou sem acesso.') };
   const setores = state.sectors.filter(s => s.unit_id === un.id);
-  const [corpo, r] = await Promise.all([paginaGeral({}, { unit_id: un.id }), api('/dashboard/resumo?unit_id=' + un.id)]);
+  const corpo = await paginaGeral({}, { unit_id: un.id });
   const lista = html`<section class="card mt"><h2>Setores</h2><div class="tablewrap"><table><thead><tr><th>Setor</th><th>Ramal</th><th></th></tr></thead><tbody>
     ${setores.map(s => html`<tr><td><a href="#/setor/${s.id}">${s.nome}</a></td><td>${s.ramais.join(' / ') || '–'}</td><td><a class="btn btn-sm" href="#/setor/${s.id}">Abrir</a></td></tr>`)}</tbody></table></div></section>`;
-  return { titulo: `${un.sigla} – ${un.nome}`, crumbs: [['#/', 'Visão Geral'], [null, un.sigla]], corpo: html`${corpo}${lista}`,
-    acoes: podeAlertar() ? html`<button data-act="alerta" data-unit="${un.id}">Enviar alerta à unidade</button>` : '' };
+  return { titulo: `${un.sigla}`, sub: un.nome, voltar: ['#/', 'Voltar ao Painel Geral'], tags: [['solid', un.sigla], ['', eDiretoria(un) ? 'Diretoria' : 'Coordenação']],
+    corpo: html`${corpo}${lista}`, acoes: podeAlertar() ? html`<button data-act="alerta" data-unit="${un.id}">${ico('bell')} Alerta</button>` : '' };
 }
 
 function abasSetor(id, ativa) {
-  const abas = [['demandas', 'Demandas'], ['pendencias', 'Pendências'], ['consolidado', 'Consolidado'], ['indicadores', 'Indicadores']];
+  const abas = [['resumo', 'Resumo'], ['demandas', 'Demandas'], ['pendencias', 'Pendências'], ['consolidado', 'Consolidado'], ['indicadores', 'Indicadores']];
   return html`<nav class="tabs" aria-label="Seções do setor">${abas.map(([k, l]) => html`<a href="#/setor/${id}/${k}" ${attr(k === ativa, 'aria-current="page"')}>${l}</a>`)}</nav>`;
 }
 
-async function viewSetor(id, aba = 'demandas') {
+async function viewSetor(id, aba = 'resumo') {
   const s = state.sectors.find(x => x.id === Number(id));
   if (!s) return { titulo: 'Setor não encontrado', corpo: vazio('Setor não encontrado ou sem acesso.') };
   const un = state.units.find(u => u.id === s.unit_id);
   const pode = podeLancar(s.id);
   let corpo, acoes = '';
-  if (aba === 'demandas') {
+  if (aba === 'resumo') {
+    const [r, lista, pend, inds] = await Promise.all([api('/dashboard/resumo?sector_id=' + s.id), api('/demandas?sector_id=' + s.id + '&limit=500'),
+      api('/pendencias?sector_id=' + s.id), api('/indicadores?sector_id=' + s.id)]);
+    const abertas = lista.filter(d => !['concluida', 'cancelada'].includes(d.status)).slice(0, 6);
+    const pAb = pend.filter(p => !p.resolvida).slice(0, 4);
+    const contato = (ic, rot, v) => (v ? html`<div class="contact"><div class="tile">${ico(ic)}</div><div><small>${rot}</small><b>${v}</b></div></div>` : '');
+    const vazioC = (t) => html`<p class="muted" style="text-align:center;padding:28px 8px">${t}</p>`;
+    corpo = html`<div class="layout-2"><div class="stack">${kpis(r.kpis, 'sector_id=' + s.id + '&')}
+      <div class="grid g-2">
+        <section class="card"><div class="row between"><h2>Demandas e Pendências</h2><a class="small" href="#/setor/${s.id}/demandas">Ver todas</a></div>
+          ${abertas.length || pAb.length ? html`${abertas.map(d => html`<a class="item" href="#/demanda/${d.id}"><div><b>${d.processo}</b><div>${d.assunto}</div><div class="meta">Prazo: ${fmtData(d.prazo)}</div></div>${tagPrazo(d.prazo_status)}</a>`)}
+            ${pAb.length ? html`<div class="sect-label" style="margin-top:12px">Pendências</div>${pAb.map(p => html`<div class="item"><div>${p.descricao}<div class="meta">${p.responsavel || ''} ${p.prazo ? '· até ' + fmtData(p.prazo) : ''}</div></div>${p.atrasada ? html`<span class="tag t-fora">Atrasada</span>` : ''}</div>`)}` : ''}`
+            : vazioC('Nenhuma demanda registrada para este setor.')}</section>
+        <section class="card"><div class="row between"><h2>Indicadores</h2><a class="small" href="#/setor/${s.id}/indicadores">Gerenciar</a></div>
+          ${inds.length ? inds.map(i => html`<div style="margin-bottom:12px"><div class="lrow"><b>${i.nome}</b><span>${i.realizado == null ? 'sem lançamento' : valInd(i)}</span></div>
+            <div class="prog"><i class="${i.realizado != null && pctInd(i) >= 100 ? 'ok' : ''}" style="width:${i.realizado == null ? 0 : pctInd(i)}%"></i></div></div>`)
+            : vazioC('Nenhum indicador registrado para este setor.')}</section>
+      </div></div>
+      <section class="card"><h2>Contatos</h2>
+        ${contato('hash', 'Ramal', s.ramais.join(' / '))}${contato('phone', 'Telefone', s.telefones.join(' / '))}${contato('pin', 'Sala', s.sala)}
+        ${s.emails.map(e => contato('mail', 'E-mail', e))}
+        ${s.ramais.length || s.telefones.length || s.sala || s.emails.length ? '' : vazioC('Sem contatos cadastrados.')}</section></div>`;
+    if (pode) acoes = html`<button data-act="novo-ind" data-sector="${s.id}">${ico('plus')} Indicador</button><button class="btn-primary" data-act="nova-demanda" data-sector="${s.id}">${ico('plus')} Demanda</button>`;
+  } else if (aba === 'demandas') {
     const [r, lista] = await Promise.all([api('/dashboard/resumo?sector_id=' + s.id), api('/demandas?sector_id=' + s.id + '&limit=500')]);
     corpo = html`${kpis(r.kpis, 'sector_id=' + s.id + '&')}<div class="card mt">${tabelaDemandas(lista, { mostraSetor: false })}</div>`;
     if (pode) acoes = html`<button class="btn-primary" data-act="nova-demanda" data-sector="${s.id}">+ Nova demanda</button><button data-act="importar" data-sector="${s.id}">Importar CSV</button>`;
@@ -260,10 +355,8 @@ async function viewSetor(id, aba = 'demandas') {
       ${lista.length ? '' : html`<div class="card">${vazio('Nenhum indicador cadastrado', 'Use um dos modelos prontos para começar.')}</div>`}`;
     if (pode) acoes = html`<button class="btn-primary" data-act="novo-ind" data-sector="${s.id}">+ Novo indicador</button>`;
   }
-  const contato = html`<div class="small muted">Ramal: ${s.ramais.join(' / ') || '–'} · Sala: ${s.sala || '–'} · ${s.emails.length ? s.emails.map(e => html`<a href="mailto:${e}">${e}</a>`) : 'sem e-mail'}</div>`;
-  state.sectorCache = { ...state.sectorCache, [s.id]: s };
-  return { titulo: s.nome, sub: contato, crumbs: [['#/', 'Visão Geral'], [`#/unidade/${un.id}`, un.sigla], [null, s.nome]],
-    corpo: html`${abasSetor(s.id, aba)}${corpo}`, acoes: html`${acoes}${podeAlertar() ? html`<button data-act="alerta" data-sector="${s.id}">Enviar alerta</button>` : ''}` };
+  return { titulo: s.nome, sub: un.nome, voltar: [`#/unidade/${un.id}`, `Voltar para ${un.sigla}`], tags: [['solid', un.sigla], ['', 'Setor']],
+    corpo: html`${abasSetor(s.id, aba)}${corpo}`, acoes: html`${podeAlertar() ? html`<button data-act="alerta" data-sector="${s.id}">${ico('bell')} Alerta</button>` : ''}${acoes}` };
 }
 
 async function viewLista(params) {
@@ -514,25 +607,34 @@ async function carregaAlertas() {
 
 function shell(pagina, rota) {
   const u = state.user;
-  const atual = h => (rota === h ? 'aria-current="page"' : '');
-  const link = (h, t, ic) => `<a href="${h}" ${atual(h)}><span aria-hidden="true">${ic}</span>${t}</a>`;
-  const unidadesNav = state.units.map(x => `<a href="#/unidade/${x.id}" ${rota === '#/unidade/' + x.id ? 'aria-current="page"' : ''}><span aria-hidden="true">▸</span>${esc(x.sigla)}</a>`).join('');
+  const cur = h => (rota === h ? 'aria-current="page"' : '');
+  const navLink = (h, t, ic, extra = '') => `<a href="${h}" ${cur(h)}>${ico(ic).s}<span>${esc(t)}</span>${extra}</a>`;
+  const grupo = un => {
+    const abre = state.navAberto.has(un.id) || rota === '#/unidade/' + un.id || state.sectors.some(s => s.unit_id === un.id && rota === '#/setor/' + s.id);
+    const subs = state.sectors.filter(s => s.unit_id === un.id).map(s =>
+      `<a href="#/setor/${s.id}" ${rota === '#/setor/' + s.id ? 'aria-current="page"' : ''} title="${esc(s.nome)}">${ico('chev').s}<span>${esc(s.nome)}</span></a>`).join('');
+    return `<details data-unit="${un.id}" ${abre ? 'open' : ''}><summary>${ico('building').s}<a class="u-t" href="#/unidade/${un.id}" style="padding:0;margin:0;color:inherit;background:none">${esc(un.sigla)}<small>${esc(un.nome)}</small></a>${ico('chev', 'chev').s}</summary><div class="sub">${subs}</div></details>`;
+  };
+  const dir = state.units.filter(eDiretoria), coord = state.units.filter(x => !eDiretoria(x));
+  const alertasBadge = state.alertasNovos ? `<span class="badge-n">${state.alertasNovos}</span>` : '';
+  const nav = navLink('#/', 'Painel Geral', 'grid') +
+    (dir.length ? `<div class="sec">Diretorias</div>${dir.map(grupo).join('')}` : '') +
+    (coord.length ? `<div class="sec">Coordenações</div>${coord.map(grupo).join('')}` : '') +
+    '<div class="sec">Gestão</div>' + navLink('#/alertas', 'Alertas', 'bell', alertasBadge) + navLink('#/lista', 'Demandas', 'list') +
+    navLink('#/relatorios', 'Relatórios', 'doc') + navLink('#/contatos', 'Contatos', 'phone') +
+    (['admin', 'superintendente'].includes(u.perfil) ? navLink('#/admin', 'Administração', 'gear') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
-  return html`<div class="shell"><aside class="side" id="side"><div class="brand"><span aria-hidden="true" style="font-size:1.6rem">▮▮</span><span>SRE Metropolitana A<small>Painel de Gestão · SEE/MG</small></span></div>
-    <nav class="nav" aria-label="Principal">${new Raw(
-      (u.perfil === 'coord_setor' ? link('#/setor/' + u.sector_id, 'Meu setor', '●') : link('#/', 'Visão Geral', '◉')) +
-      (u.perfil === 'coord_setor' ? '' : `<div class="sec">Unidades</div>${unidadesNav}`) +
-      '<div class="sec">Gestão</div>' +
-      `<a href="#/alertas" ${atual('#/alertas')}><span aria-hidden="true">!</span>Alertas${state.alertasNovos ? `<span class="badge-n">${state.alertasNovos}</span>` : ''}</a>` +
-      link('#/lista', 'Demandas', '☰') + link('#/relatorios', 'Relatórios', '⎙') + link('#/contatos', 'Contatos', '☎') +
-      (['admin', 'superintendente'].includes(u.perfil) ? link('#/admin', 'Administração', '⚙') : ''))}</nav></aside>
-    <div class="main"><header class="top"><button class="menu-btn icon-btn" data-act="menu" aria-label="Abrir menu">☰</button>
+  return html`<div class="shell"><aside class="side" id="side"><div class="brand"><span class="logo">${ico('grad')}</span><span>SRE Metropolitana A<small>Painel de Gestão</small></span></div>
+    <nav class="nav" aria-label="Principal">${new Raw(nav)}</nav></aside>
+    <div class="main"><header class="top"><button class="menu-btn icon-btn" data-act="menu" aria-label="Abrir menu">${ico('list')}</button>
       <div class="search"><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
-      <button class="icon-btn" data-act="tema" aria-label="Alternar tema claro/escuro">◐</button>
+      <span style="flex:1"></span><button class="icon-btn" data-act="tema" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
       <span class="small muted" style="text-align:right"><b>${u.nome}</b><br>${PERFIL[u.perfil]}</span>
       <button data-act="senha" class="btn-sm">Senha</button><button data-act="sair" class="btn-sm">Sair</button></header>
-    <main id="main" class="content" tabindex="-1">${crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : ''}
-      <div class="row between" style="margin-bottom:16px"><div><h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="muted">${pagina.sub}</div>` : ''}</div><div class="row no-print">${pagina.acoes || ''}</div></div>
+    <main id="main" class="content" tabindex="-1">
+      ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
+      <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
+        <div class="row no-print">${pagina.acoes || ''}</div></div>
       ${pagina.corpo}</main></div></div>
     <datalist id="dl-assuntos">${['Prestação de contas', 'Solicitação de escola', 'Aposentadoria', 'Averbação de tempo', 'Designação', 'Resposta ao TCE', 'Resposta ao MP'].map(a => html`<option value="${a}">`)}</datalist>`;
 }
@@ -650,5 +752,9 @@ document.addEventListener('input', ev => {
   }, 250);
 });
 
+document.addEventListener('toggle', ev => {
+  const d = ev.target; if (!(d instanceof HTMLDetailsElement) || !d.dataset.unit) return;
+  const id = Number(d.dataset.unit); if (d.open) state.navAberto.add(id); else state.navAberto.delete(id);
+}, true);
 window.addEventListener('hashchange', render);
 render();

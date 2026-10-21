@@ -86,7 +86,18 @@ router.get('/resumo', wrap(async (req, res) => {
           and date_trunc('week', d.prazo) = w)::int as qtd
      from top t cross join semanas order by t.nome, w`, params)).rows;
 
-  res.json({ kpis, porUnidade, evolucao, ranking, calor });
+  // Até 2 indicadores por unidade (cartões de unidade) e demandas mais recentes
+  const indRows = (await q(
+    `select i.nome, i.meta, i.realizado, i.unidade, i.menor_melhor, s.unit_id
+       from indicadores i join sectors s on s.id = i.sector_id join units u on u.id = s.unit_id
+      where ${where} and i.realizado is not null order by i.updated_at desc`, params)).rows;
+  for (const u of porUnidade) u.indicadores = indRows.filter(i => i.unit_id === u.id).slice(0, 2);
+
+  const recentes = (await q(
+    `select d.id, d.processo, d.assunto, d.prazo, u.sigla as unidade, s.nome as setor
+       ${base} order by d.created_at desc, d.id desc limit 6`, params)).rows;
+
+  res.json({ kpis, porUnidade, evolucao, ranking, calor, recentes });
 }));
 
 // Próximos vencimentos / atrasos para a lista de ação
