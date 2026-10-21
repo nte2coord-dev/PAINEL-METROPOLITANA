@@ -40,7 +40,7 @@ function toast(msg, err) {
   $('#toasts').append(t); setTimeout(() => t.remove(), 4500);
 }
 
-const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0, megaUnit: null };
+const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0 };
 const isAdmin = () => state.user.perfil === 'admin';
 const podeAlertar = () => ['admin', 'superintendente', 'diretor'].includes(state.user.perfil);
 const podeLancar = sid => isAdmin() || (state.user.perfil === 'coord_setor' && state.user.sector_id === Number(sid));
@@ -362,6 +362,20 @@ async function viewSetor(id, aba = 'resumo') {
     corpo: html`${abasSetor(s.id, aba)}${corpo}`, acoes: html`${podeAlertar() ? html`<button data-act="alerta" data-sector="${s.id}">${ico('bell')} Alerta</button>` : ''}${acoes}` };
 }
 
+async function viewUnidades() {
+  const grupo = (titulo, lista) => (lista.length ? html`<h2 class="mt" style="font-size:1.2rem">${titulo}</h2><div class="g-unit-cards" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">
+    ${lista.map(un => { const setores = state.sectors.filter(x => x.unit_id === un.id); return html`<section class="card unit-block" data-unit-block>
+      <div class="head" style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px"><div class="tile" style="width:42px;height:42px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;flex:none">${ico('building')}</div>
+        <div style="min-width:0"><div style="font-weight:700;font-size:1.05rem">${un.sigla} <span class="pill">${setores.length} setor(es)</span></div><div class="small muted">${un.nome}</div></div>
+        <a class="btn btn-sm" style="margin-left:auto" href="#/unidade/${un.id}">Painel ${ico('arrow')}</a></div>
+      <div class="sector-list">${setores.map(x => html`<a class="item" data-sector-link href="#/setor/${x.id}"><span>${x.nome}</span>${ico('chev')}</a>`)}</div></section>`; })}</div>` : '');
+  const un = state.units;
+  return { titulo: 'Unidades e setores', sub: 'Escolha uma unidade ou um setor para ver demandas, pendências, indicadores e contatos.', crumbs: [['#/', 'Visão Geral'], [null, 'Unidades e setores']],
+    corpo: html`<div class="search" style="max-width:420px"><input id="filtro-setor" type="search" placeholder="Filtrar setores…" aria-label="Filtrar setores"></div>
+      ${grupo('Diretorias', un.filter(eDiretoria))}${grupo('Coordenações', un.filter(x => !eDiretoria(x)))}
+      <p id="sem-resultado" class="muted hidden">Nenhum setor encontrado.</p>` };
+}
+
 async function viewLista(params) {
   const sp = new URLSearchParams(params);
   const filtros = {}; for (const k of ['prazo_status', 'unit_id', 'sector_id', 'status', 'prioridade', 'q']) if (sp.get(k)) filtros[k] = sp.get(k);
@@ -608,28 +622,15 @@ async function carregaAlertas() {
   try { state.alertasNovos = (await api('/alertas')).filter(a => !a.lido_em && (state.user.perfil === 'coord_setor' || a.de_user_id !== state.user.id)).length; } catch (_) { state.alertasNovos = 0; }
 }
 
-function megaDireita(unitId) {
-  const un = state.units.find(x => x.id === Number(unitId));
-  if (!un) return html``;
-  const setores = state.sectors.filter(s => s.unit_id === un.id);
-  return html`<div class="lbl">${eDiretoria(un) ? 'Diretoria' : 'Coordenação'}</div>
-    <div class="row between"><b style="font-size:1.1rem">${un.sigla} <span class="muted" style="font-weight:400">– ${un.nome}</span></b><a class="all" href="#/unidade/${un.id}">Abrir painel da unidade ${ico('arrow')}</a></div>
-    <div class="lbl" style="padding-left:0;margin-top:14px">Setores (${setores.length})</div>
-    <div class="secs">${setores.map(s => html`<a href="#/setor/${s.id}">${s.nome}</a>`)}</div>`;
-}
-
 function shell(pagina, rota) {
   const u = state.user;
-  const emUnidades = /^#\/(unidade|setor)\//.test(rota);
+  const emUnidades = /^#\/(unidades|unidade\/|setor\/)/.test(rota);
   const cur = h => (rota === h ? 'aria-current="page"' : '');
   const link = (h, t, ic, extra = '') => `<a href="${h}" ${cur(h)}>${ico(ic).s}<span>${esc(t)}</span>${extra}</a>`;
-  const dir = state.units.filter(eDiretoria), coord = state.units.filter(x => !eDiretoria(x));
-  const ativoU = state.megaUnit && state.units.some(x => x.id === state.megaUnit) ? state.megaUnit : (state.units[0] || {}).id;
-  const itemU = x => `<button type="button" data-act="mega-unit" data-id="${x.id}" aria-selected="${x.id === ativoU}">${ico('building').s}<span>${esc(x.sigla)}<small>${esc(x.nome)}</small></span></button>`;
   const podeUnidades = state.units.length > 0;
   const alertasBadge = state.alertasNovos ? `<span class="badge-n">${state.alertasNovos}</span>` : '';
   const nav = (u.perfil === 'coord_setor' ? link('#/setor/' + u.sector_id, 'Meu setor', 'home') : link('#/', 'Painel Geral', 'grid')) +
-    (podeUnidades && u.perfil !== 'coord_setor' ? `<button type="button" class="nv" data-act="mega" aria-haspopup="true" aria-expanded="false" ${emUnidades ? 'aria-current="page"' : ''}>${ico('building').s}<span>Unidades e setores</span>${ico('down').s}</button>` : '') +
+    (podeUnidades && u.perfil !== 'coord_setor' ? `<a href="#/unidades" ${emUnidades ? 'aria-current="page"' : ''}>${ico('building').s}<span>Unidades e setores</span></a>` : '') +
     link('#/lista', 'Demandas', 'list') + link('#/alertas', 'Alertas', 'bell', alertasBadge) + link('#/contatos', 'Contatos', 'phone') + link('#/relatorios', 'Relatórios', 'doc') +
     (['admin', 'superintendente'].includes(u.perfil) ? link('#/admin', 'Administração', 'gear') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
@@ -641,9 +642,7 @@ function shell(pagina, rota) {
       <details class="user-menu"><summary aria-label="Menu do usuário"><span class="avatar">${iniciais}</span><span class="small" style="line-height:1.2"><b>${u.nome}</b><br><span class="muted">${PERFIL[u.perfil]}</span></span></summary>
         <div class="drop"><button data-act="senha">Trocar senha</button><button data-act="sair">Sair</button></div></details></div>
     <nav class="nav" aria-label="Principal">${new Raw(nav)}</nav>
-    <div class="mega hidden" id="mega" role="dialog" aria-label="Unidades e setores"><div class="mega-l">
-      ${new Raw((dir.length ? '<div class="lbl">Diretorias</div>' : '') + dir.map(itemU).join('') + (coord.length ? '<div class="lbl">Coordenações</div>' : '') + coord.map(itemU).join(''))}</div>
-      <div class="mega-r" id="mega-r">${megaDireita(ativoU)}</div></div></header>
+    </header>
     <main id="main" class="content" tabindex="-1">
       ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
       <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
@@ -685,6 +684,7 @@ async function render() {
   try {
     const [a, b, c] = partes;
     if (!a) pagina = await viewGeral();
+    else if (a === 'unidades') pagina = await viewUnidades();
     else if (a === 'unidade') pagina = await viewUnidade(b);
     else if (a === 'setor') pagina = await viewSetor(b, c);
     else if (a === 'demanda') pagina = await viewDemanda(b);
@@ -711,11 +711,6 @@ document.addEventListener('click', async ev => {
     const act = el.dataset.act;
     try {
       if (act === 'tema') alternaTema();
-      else if (act === 'mega') { const m = $('#mega'); const abre = m.classList.contains('hidden'); m.classList.toggle('hidden', !abre); el.setAttribute('aria-expanded', abre); }
-      else if (act === 'mega-unit') {
-        state.megaUnit = Number(el.dataset.id); $('#mega-r').innerHTML = megaDireita(state.megaUnit).s;
-        document.querySelectorAll('.mega-l button').forEach(b => b.setAttribute('aria-selected', b === el));
-      }
       else if (act === 'sair') { await api('/auth/logout', { method: 'POST', body: {} }); state.user = null; location.hash = '#/'; render(); }
       else if (act === 'senha') await formDialog({ titulo: 'Trocar senha', enviar: x => api('/auth/senha', { method: 'POST', body: x }), campos: [
         { name: 'atual', label: 'Senha atual', type: 'password', required: true, full: true }, { name: 'nova', label: 'Nova senha (mín. 8)', type: 'password', required: true, full: true }] });
@@ -732,7 +727,6 @@ document.addEventListener('click', async ev => {
     } catch (e) { toast(e.message, true); }
   }
   if (!ev.target.closest('.search')) $('#resultados')?.classList.add('hidden');
-  if (!ev.target.closest('#mega, [data-act=mega]')) { $('#mega')?.classList.add('hidden'); $('[data-act=mega]')?.setAttribute('aria-expanded', 'false'); }
   if (!ev.target.closest('.user-menu')) document.querySelector('.user-menu')?.removeAttribute('open');
 });
 
@@ -756,6 +750,17 @@ document.addEventListener('submit', async ev => {
   } catch (e) { erro(e.message); }
 });
 
+document.addEventListener('input', ev => {
+  if (ev.target.id !== 'filtro-setor') return;
+  const t = ev.target.value.trim().toLowerCase(); let total = 0;
+  document.querySelectorAll('[data-unit-block]').forEach(b => {
+    const unidade = b.textContent.slice(0, 80).toLowerCase(); let vis = 0;
+    b.querySelectorAll('[data-sector-link]').forEach(a => { const ok = !t || a.textContent.toLowerCase().includes(t) || unidade.includes(t); a.classList.toggle('hidden', !ok); if (ok) vis++; });
+    b.classList.toggle('hidden', vis === 0); total += vis;
+  });
+  $('#sem-resultado')?.classList.toggle('hidden', total > 0);
+});
+
 let buscaT;
 document.addEventListener('input', ev => {
   if (ev.target.id !== 'busca') return;
@@ -771,6 +776,5 @@ document.addEventListener('input', ev => {
   }, 250);
 });
 
-document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { $('#mega')?.classList.add('hidden'); $('[data-act=mega]')?.setAttribute('aria-expanded', 'false'); } });
 window.addEventListener('hashchange', render);
 render();
