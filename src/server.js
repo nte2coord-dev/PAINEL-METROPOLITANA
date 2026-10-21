@@ -39,7 +39,7 @@ app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api', require('./routes/data'));
 app.use('/api', require('./routes/admin'));
 
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '5m' }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: 0, etag: true }));
 app.get('*', (req, res, next) =>
   req.path.startsWith('/api') ? next() : res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
 
