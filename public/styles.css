@@ -214,3 +214,11 @@ dialog form { padding: 20px; } dialog .actions { display: flex; gap: 8px; justif
 .top-row .spacer { flex: 1; }
 .search { min-width: 0; }
 @media (max-width: 800px) { .top-row .spacer { display: none; } .user-menu .small { display: none; } }
+
+/* conteúdo centralizado */
+:root { --wrap: 1384px; }
+.top-row, .nav { max-width: var(--wrap); margin-left: auto; margin-right: auto; width: 100%; }
+.top-row { padding-left: 32px; padding-right: 32px; } .nav { padding-left: 24px; padding-right: 24px; }
+.content { max-width: var(--wrap); margin-left: auto; margin-right: auto; width: 100%; }
+.mega { left: max(24px, calc((100% - var(--wrap)) / 2 + 24px)); right: auto; width: min(920px, calc(100% - 48px)); }
+@media (max-width: 800px) { .top-row { padding-left: 16px; padding-right: 16px; } .nav { padding-left: 12px; padding-right: 12px; } .mega { left: 8px; width: calc(100% - 16px); } }
