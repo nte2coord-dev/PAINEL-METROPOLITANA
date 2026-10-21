@@ -40,7 +40,7 @@ function toast(msg, err) {
   $('#toasts').append(t); setTimeout(() => t.remove(), 4500);
 }
 
-const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0, navAberto: new Set() };
+const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0, megaUnit: null };
 const isAdmin = () => state.user.perfil === 'admin';
 const podeAlertar = () => ['admin', 'superintendente', 'diretor'].includes(state.user.perfil);
 const podeLancar = sid => isAdmin() || (state.user.perfil === 'coord_setor' && state.user.sector_id === Number(sid));
@@ -124,6 +124,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
   chev: '<path d="m9 6 6 6-6 6"/>',
   grad: '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
   home: '<path d="M3 11 12 3l9 8"/><rect x="4" y="11" width="16" height="10"/>',
@@ -289,6 +290,7 @@ async function viewUnidade(id) {
   const lista = html`<section class="card mt"><h2>Setores</h2><div class="tablewrap"><table><thead><tr><th>Setor</th><th>Ramal</th><th></th></tr></thead><tbody>
     ${setores.map(s => html`<tr><td><a href="#/setor/${s.id}">${s.nome}</a></td><td>${s.ramais.join(' / ') || '–'}</td><td><a class="btn btn-sm" href="#/setor/${s.id}">Abrir</a></td></tr>`)}</tbody></table></div></section>`;
   return { titulo: `${un.sigla}`, sub: un.nome, voltar: ['#/', 'Voltar ao Painel Geral'], tags: [['solid', un.sigla], ['', eDiretoria(un) ? 'Diretoria' : 'Coordenação']],
+    chips: { rotulo: 'Setores', itens: setores.map(x => [`#/setor/${x.id}`, x.nome, false]) },
     corpo: html`${corpo}${lista}`, acoes: podeAlertar() ? html`<button data-act="alerta" data-unit="${un.id}">${ico('bell')} Alerta</button>` : '' };
 }
 
@@ -356,6 +358,7 @@ async function viewSetor(id, aba = 'resumo') {
     if (pode) acoes = html`<button class="btn-primary" data-act="novo-ind" data-sector="${s.id}">+ Novo indicador</button>`;
   }
   return { titulo: s.nome, sub: un.nome, voltar: [`#/unidade/${un.id}`, `Voltar para ${un.sigla}`], tags: [['solid', un.sigla], ['', 'Setor']],
+    chips: { rotulo: `Setores da ${un.sigla}`, itens: state.sectors.filter(x => x.unit_id === un.id).map(x => [`#/setor/${x.id}${aba === 'resumo' ? '' : '/' + aba}`, x.nome, x.id === s.id]) },
     corpo: html`${abasSetor(s.id, aba)}${corpo}`, acoes: html`${podeAlertar() ? html`<button data-act="alerta" data-sector="${s.id}">${ico('bell')} Alerta</button>` : ''}${acoes}` };
 }
 
@@ -605,37 +608,48 @@ async function carregaAlertas() {
   try { state.alertasNovos = (await api('/alertas')).filter(a => !a.lido_em && (state.user.perfil === 'coord_setor' || a.de_user_id !== state.user.id)).length; } catch (_) { state.alertasNovos = 0; }
 }
 
+function megaDireita(unitId) {
+  const un = state.units.find(x => x.id === Number(unitId));
+  if (!un) return html``;
+  const setores = state.sectors.filter(s => s.unit_id === un.id);
+  return html`<div class="lbl">${eDiretoria(un) ? 'Diretoria' : 'Coordenação'}</div>
+    <div class="row between"><b style="font-size:1.1rem">${un.sigla} <span class="muted" style="font-weight:400">– ${un.nome}</span></b><a class="all" href="#/unidade/${un.id}">Abrir painel da unidade ${ico('arrow')}</a></div>
+    <div class="lbl" style="padding-left:0;margin-top:14px">Setores (${setores.length})</div>
+    <div class="secs">${setores.map(s => html`<a href="#/setor/${s.id}">${s.nome}</a>`)}</div>`;
+}
+
 function shell(pagina, rota) {
   const u = state.user;
+  const emUnidades = /^#\/(unidade|setor)\//.test(rota);
   const cur = h => (rota === h ? 'aria-current="page"' : '');
-  const navLink = (h, t, ic, extra = '') => `<a href="${h}" ${cur(h)}>${ico(ic).s}<span>${esc(t)}</span>${extra}</a>`;
-  const grupo = un => {
-    const abre = state.navAberto.has(un.id) || rota === '#/unidade/' + un.id || state.sectors.some(s => s.unit_id === un.id && rota === '#/setor/' + s.id);
-    const subs = state.sectors.filter(s => s.unit_id === un.id).map(s =>
-      `<a href="#/setor/${s.id}" ${rota === '#/setor/' + s.id ? 'aria-current="page"' : ''} title="${esc(s.nome)}">${ico('chev').s}<span>${esc(s.nome)}</span></a>`).join('');
-    return `<details data-unit="${un.id}" ${abre ? 'open' : ''}><summary>${ico('building').s}<a class="u-t" href="#/unidade/${un.id}" style="padding:0;margin:0;color:inherit;background:none">${esc(un.sigla)}<small>${esc(un.nome)}</small></a>${ico('chev', 'chev').s}</summary><div class="sub">${subs}</div></details>`;
-  };
+  const link = (h, t, ic, extra = '') => `<a href="${h}" ${cur(h)}>${ico(ic).s}<span>${esc(t)}</span>${extra}</a>`;
   const dir = state.units.filter(eDiretoria), coord = state.units.filter(x => !eDiretoria(x));
+  const ativoU = state.megaUnit && state.units.some(x => x.id === state.megaUnit) ? state.megaUnit : (state.units[0] || {}).id;
+  const itemU = x => `<button type="button" data-act="mega-unit" data-id="${x.id}" aria-selected="${x.id === ativoU}">${ico('building').s}<span>${esc(x.sigla)}<small>${esc(x.nome)}</small></span></button>`;
+  const podeUnidades = state.units.length > 0;
   const alertasBadge = state.alertasNovos ? `<span class="badge-n">${state.alertasNovos}</span>` : '';
-  const nav = navLink('#/', 'Painel Geral', 'grid') +
-    (dir.length ? `<div class="sec">Diretorias</div>${dir.map(grupo).join('')}` : '') +
-    (coord.length ? `<div class="sec">Coordenações</div>${coord.map(grupo).join('')}` : '') +
-    '<div class="sec">Gestão</div>' + navLink('#/alertas', 'Alertas', 'bell', alertasBadge) + navLink('#/lista', 'Demandas', 'list') +
-    navLink('#/relatorios', 'Relatórios', 'doc') + navLink('#/contatos', 'Contatos', 'phone') +
-    (['admin', 'superintendente'].includes(u.perfil) ? navLink('#/admin', 'Administração', 'gear') : '');
+  const nav = (u.perfil === 'coord_setor' ? link('#/setor/' + u.sector_id, 'Meu setor', 'home') : link('#/', 'Painel Geral', 'grid')) +
+    (podeUnidades && u.perfil !== 'coord_setor' ? `<button type="button" class="nv" data-act="mega" aria-haspopup="true" aria-expanded="false" ${emUnidades ? 'aria-current="page"' : ''}>${ico('building').s}<span>Unidades e setores</span>${ico('down').s}</button>` : '') +
+    link('#/lista', 'Demandas', 'list') + link('#/alertas', 'Alertas', 'bell', alertasBadge) + link('#/contatos', 'Contatos', 'phone') + link('#/relatorios', 'Relatórios', 'doc') +
+    (['admin', 'superintendente'].includes(u.perfil) ? link('#/admin', 'Administração', 'gear') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
-  return html`<div class="shell"><aside class="side" id="side"><div class="brand"><span class="logo">${ico('grad')}</span><span>SRE Metropolitana A<small>Painel de Gestão</small></span></div>
-    <nav class="nav" aria-label="Principal">${new Raw(nav)}</nav></aside>
-    <div class="main"><header class="top"><button class="menu-btn icon-btn" data-act="menu" aria-label="Abrir menu">${ico('list')}</button>
+  const iniciais = u.nome.split(/\s+/).map(x => x[0]).slice(0, 2).join('').toUpperCase();
+  return html`<div class="shell"><header class="top">
+    <div class="top-row"><a class="brand" href="#/"><span class="logo">${ico('grad')}</span><span>SRE Metropolitana A<small>Painel de Gestão</small></span></a>
       <div class="search"><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
-      <span style="flex:1"></span><button class="icon-btn" data-act="tema" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
-      <span class="small muted" style="text-align:right"><b>${u.nome}</b><br>${PERFIL[u.perfil]}</span>
-      <button data-act="senha" class="btn-sm">Senha</button><button data-act="sair" class="btn-sm">Sair</button></header>
+      <span class="spacer"></span><button class="icon-btn" data-act="tema" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
+      <details class="user-menu"><summary aria-label="Menu do usuário"><span class="avatar">${iniciais}</span><span class="small" style="line-height:1.2"><b>${u.nome}</b><br><span class="muted">${PERFIL[u.perfil]}</span></span></summary>
+        <div class="drop"><button data-act="senha">Trocar senha</button><button data-act="sair">Sair</button></div></details></div>
+    <nav class="nav" aria-label="Principal">${new Raw(nav)}</nav>
+    <div class="mega hidden" id="mega" role="dialog" aria-label="Unidades e setores"><div class="mega-l">
+      ${new Raw((dir.length ? '<div class="lbl">Diretorias</div>' : '') + dir.map(itemU).join('') + (coord.length ? '<div class="lbl">Coordenações</div>' : '') + coord.map(itemU).join(''))}</div>
+      <div class="mega-r" id="mega-r">${megaDireita(ativoU)}</div></div></header>
     <main id="main" class="content" tabindex="-1">
       ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
       <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
         <div class="row no-print">${pagina.acoes || ''}</div></div>
-      ${pagina.corpo}</main></div></div>
+      ${pagina.chips ? html`<nav class="chips" aria-label="${pagina.chips.rotulo}"><span class="lb">${pagina.chips.rotulo}:</span>${pagina.chips.itens.map(([h, t, at]) => html`<a href="${h}" ${attr(at, 'aria-current="page"')}>${t}</a>`)}</nav>` : ''}
+      ${pagina.corpo}</main></div>
     <datalist id="dl-assuntos">${['Prestação de contas', 'Solicitação de escola', 'Aposentadoria', 'Averbação de tempo', 'Designação', 'Resposta ao TCE', 'Resposta ao MP'].map(a => html`<option value="${a}">`)}</datalist>`;
 }
 
@@ -665,7 +679,7 @@ async function render() {
     if (state.user) { await refreshEstrutura(); await carregaAlertas(); }
   }
   if (!state.user) { app.innerHTML = (partes[0] === 'esqueci' ? esqueciView() : loginView()).s; return; }
-  const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="shell"><div></div><div class="content">${skeleton()}</div></div>`.s;
+  const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="shell"><main id="main" class="content">${skeleton()}</main></div>`.s;
   else hist.innerHTML = skeleton().s;
   let pagina;
   try {
@@ -697,7 +711,11 @@ document.addEventListener('click', async ev => {
     const act = el.dataset.act;
     try {
       if (act === 'tema') alternaTema();
-      else if (act === 'menu') $('#side').classList.toggle('open');
+      else if (act === 'mega') { const m = $('#mega'); const abre = m.classList.contains('hidden'); m.classList.toggle('hidden', !abre); el.setAttribute('aria-expanded', abre); }
+      else if (act === 'mega-unit') {
+        state.megaUnit = Number(el.dataset.id); $('#mega-r').innerHTML = megaDireita(state.megaUnit).s;
+        document.querySelectorAll('.mega-l button').forEach(b => b.setAttribute('aria-selected', b === el));
+      }
       else if (act === 'sair') { await api('/auth/logout', { method: 'POST', body: {} }); state.user = null; location.hash = '#/'; render(); }
       else if (act === 'senha') await formDialog({ titulo: 'Trocar senha', enviar: x => api('/auth/senha', { method: 'POST', body: x }), campos: [
         { name: 'atual', label: 'Senha atual', type: 'password', required: true, full: true }, { name: 'nova', label: 'Nova senha (mín. 8)', type: 'password', required: true, full: true }] });
@@ -714,7 +732,8 @@ document.addEventListener('click', async ev => {
     } catch (e) { toast(e.message, true); }
   }
   if (!ev.target.closest('.search')) $('#resultados')?.classList.add('hidden');
-  if (ev.target.closest('.nav a')) $('#side')?.classList.remove('open');
+  if (!ev.target.closest('#mega, [data-act=mega]')) { $('#mega')?.classList.add('hidden'); $('[data-act=mega]')?.setAttribute('aria-expanded', 'false'); }
+  if (!ev.target.closest('.user-menu')) document.querySelector('.user-menu')?.removeAttribute('open');
 });
 
 document.addEventListener('change', ev => {
@@ -752,9 +771,6 @@ document.addEventListener('input', ev => {
   }, 250);
 });
 
-document.addEventListener('toggle', ev => {
-  const d = ev.target; if (!(d instanceof HTMLDetailsElement) || !d.dataset.unit) return;
-  const id = Number(d.dataset.unit); if (d.open) state.navAberto.add(id); else state.navAberto.delete(id);
-}, true);
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape') { $('#mega')?.classList.add('hidden'); $('[data-act=mega]')?.setAttribute('aria-expanded', 'false'); } });
 window.addEventListener('hashchange', render);
 render();
