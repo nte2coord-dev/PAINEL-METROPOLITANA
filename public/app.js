@@ -124,6 +124,7 @@ const ICONS = {
   plus: '<path d="M12 5v14M5 12h14"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
   left: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   down: '<path d="m6 9 6 6 6-6"/>',
   chev: '<path d="m9 6 6 6-6 6"/>',
   grad: '<path d="m2 9 10-5 10 5-10 5z"/><path d="M6 11v5c0 1.5 3 3 6 3s6-1.5 6-3v-5"/>',
@@ -211,12 +212,11 @@ const valInd = i => (i.unidade === 'pct' ? `${i.realizado}%` : `${i.realizado}/$
 const pctInd = i => (i.menor_melhor ? (i.realizado ? Math.min(100, 100 * i.meta / i.realizado) : 100) : Math.min(100, 100 * i.realizado / (i.meta || 1)));
 
 function cartoesUnidades(lista) {
-  return html`<div class="g-unit-cards">${lista.map(u => {
+  return html`<div class="g-unit-cards">${lista.map((u, i) => {
     const pc = u.total ? Math.round(100 * u.concluidas / u.total) : 0;
     return html`<a class="card ucard" href="#/unidade/${u.id}">
-      <div class="head"><div class="tile">${ico('building')}</div>
-        <div><div class="nm">${u.sigla} <span class="pill">${eDiretoria(u) ? 'Diretoria' : 'Coordenação'}</span></div><div class="small muted">${u.nome}</div></div>
-        <span class="arrow">${ico('arrow')}</span></div>
+      <div class="ucover p${i % 5}"><span class="pill solid">${eDiretoria(u) ? 'Diretoria' : 'Coordenação'}</span><span class="ctile">${ico('building')}</span><span class="arrow">${ico('arrow')}</span></div>
+      <div class="head"><div><div class="nm">${u.sigla}</div><div class="small muted">${u.nome}</div></div></div>
       <div class="mini3"><div><b>${u.total}</b><span>Demandas</span></div><div class="g"><b>${u.no_prazo + u.vence_em_breve}</b><span>No prazo</span></div><div class="r"><b>${u.fora_do_prazo}</b><span>Fora</span></div></div>
       <div class="lrow"><span>Concluídas</span><span>${pc}%</span></div><div class="prog"><i style="width:${pc}%"></i></div>
       ${(u.indicadores || []).length ? html`<div class="sect-label">Indicadores</div>${u.indicadores.map(i => html`<div class="lrow"><span>${i.nome}</span><span>${valInd(i)}</span></div>
@@ -261,7 +261,11 @@ async function paginaGeral(params, escopo = {}) {
     <section class="card mt"><h2>Vencimentos e atrasos (próximos 7 dias)</h2>${prox.length ? html`<div class="tablewrap"><table><thead><tr><th>Processo</th><th>Assunto</th><th>Setor</th><th>Prazo</th><th>Situação</th></tr></thead><tbody>
       ${prox.map(d => html`<tr><td><a href="#/demanda/${d.id}">${d.processo}</a></td><td>${d.assunto}</td><td>${d.unidade} · ${d.setor}</td><td>${fmtData(d.prazo)}</td><td>${tagPrazo(d.prazo_status)}</td></tr>`)}</tbody></table></div>` : vazio('Nada vencendo nos próximos dias')}</section>`;
   if (!geral) return html`${kpis(r.kpis, base)}${extras}`;
-  return html`${kpis(r.kpis, base)}
+  const k = r.kpis;
+  const hero = html`<section class="hero"><div><h2>${k.fora_do_prazo ? `${k.fora_do_prazo} demandas fora do prazo pedem atenção` : 'Tudo em dia por aqui'}</h2>
+      <p>${k.pendentes} demandas em aberto em ${r.porUnidade.length} unidades${k.vence_em_breve ? ` · ${k.vence_em_breve} vencem em breve` : ''}.</p>
+      <a class="btn btn-primary" href="#/lista?prazo_status=fora">${ico('alert')} Ver demandas atrasadas</a></div><div class="orb" aria-hidden="true"></div></section>`;
+  return html`${hero}${kpis(r.kpis, base)}
     <div class="layout-2 mt" style="grid-template-columns:minmax(0,1fr) 380px">
       <section class="card"><div class="row between"><h2>Demandas por Unidade</h2>
         <div class="legend-top"><span><i style="background:var(--ok)"></i>No prazo</span><span><i style="background:var(--bad)"></i>Fora do prazo</span><span><i style="background:var(--done)"></i>Concluídas</span></div></div>
@@ -646,30 +650,32 @@ async function carregaAlertas() {
 function shell(pagina, rota) {
   const u = state.user;
   const emUnidades = /^#\/(unidades|unidade\/|setor\/)/.test(rota);
-  const cur = h => (rota === h ? 'aria-current="page"' : '');
-  const link = (h, t, ic, extra = '') => `<a href="${h}" ${cur(h)}>${ico(ic).s}<span>${esc(t)}</span>${extra}</a>`;
-  const podeUnidades = state.units.length > 0;
-  const alertasBadge = state.alertasNovos ? `<span class="badge-n">${state.alertasNovos}</span>` : '';
-  const nav = (u.perfil === 'coord_setor' ? link('#/setor/' + u.sector_id, 'Meu setor', 'home') : link('#/', 'Painel Geral', 'grid')) +
-    (podeUnidades && u.perfil !== 'coord_setor' ? `<a href="#/unidades" ${emUnidades ? 'aria-current="page"' : ''}>${ico('building').s}<span>Unidades e setores</span></a>` : '') +
-    link('#/lista', 'Demandas', 'list') + link('#/alertas', 'Alertas', 'bell', alertasBadge) + link('#/contatos', 'Contatos', 'phone') + link('#/relatorios', 'Relatórios', 'doc') +
-    (['admin', 'superintendente'].includes(u.perfil) ? link('#/admin', 'Administração', 'gear') : '');
+  const item = (h, t, ic, ativo, extra = '') => `<a class="rl" href="${h}" data-tip="${esc(t)}" aria-label="${esc(t)}" ${ativo ? 'aria-current="page"' : ''}>${ico(ic).s}${extra}</a>`;
+  const alertasBadge = state.alertasNovos ? `<span class="rl-badge">${state.alertasNovos}</span>` : '';
+  const nav = (u.perfil === 'coord_setor' ? item('#/setor/' + u.sector_id, 'Meu setor', 'home', emUnidades) : item('#/', 'Painel Geral', 'grid', rota === '#/')) +
+    (state.units.length > 0 && u.perfil !== 'coord_setor' ? item('#/unidades', 'Unidades e setores', 'building', emUnidades) : '') +
+    item('#/lista', 'Demandas', 'list', rota === '#/lista') + item('#/alertas', 'Alertas', 'bell', rota === '#/alertas', alertasBadge) +
+    item('#/contatos', 'Contatos', 'phone', rota === '#/contatos') + item('#/relatorios', 'Relatórios', 'doc', rota === '#/relatorios') +
+    (['admin', 'superintendente'].includes(u.perfil) ? item('#/admin', 'Administração', 'gear', rota === '#/admin') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
   const iniciais = u.nome.split(/\s+/).map(x => x[0]).slice(0, 2).join('').toUpperCase();
-  return html`<div class="shell"><header class="top">
-    <div class="top-row"><a class="brand" href="#/"><span class="logo">${ico('grad')}</span><span>SRE Metropolitana A<small>Painel de Gestão</small></span></a>
-      <div class="search"><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
-      <span class="spacer"></span><button class="icon-btn" data-act="tema" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
-      <details class="user-menu"><summary aria-label="Menu do usuário"><span class="avatar">${iniciais}</span><span class="small" style="line-height:1.2"><b>${u.nome}</b><br><span class="muted">${PERFIL[u.perfil]}</span></span></summary>
-        <div class="drop"><button data-act="senha">Trocar senha</button><button data-act="sair">Sair</button></div></details></div>
-    <nav class="nav" aria-label="Principal">${new Raw(nav)}</nav>
-    </header>
-    <main id="main" class="content" tabindex="-1">
-      ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
-      <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
-        <div class="row no-print">${pagina.acoes || ''}</div></div>
-      ${pagina.chips ? html`<nav class="chips" aria-label="${pagina.chips.rotulo}"><span class="lb">${pagina.chips.rotulo}:</span>${pagina.chips.itens.map(([h, t, at]) => html`<a href="${h}" ${attr(at, 'aria-current="page"')}>${t}</a>`)}</nav>` : ''}
-      ${pagina.corpo}</main></div>
+  return html`<div class="app"><aside class="rail" aria-label="Navegação principal">
+      <a class="rail-logo" href="#/" data-tip="SRE Metropolitana A" aria-label="SRE Metropolitana A – início">${ico('grad')}</a>
+      <nav class="rail-nav">${new Raw(nav)}</nav>
+      <div class="rail-end"><button class="rl" data-act="tema" data-tip="Tema claro/escuro" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
+        <details class="user-menu"><summary class="rl avatar-btn" data-tip="${esc(u.nome)}" aria-label="Menu do usuário"><span class="avatar">${iniciais}</span></summary>
+          <div class="drop"><div class="who"><b>${u.nome}</b><span class="small muted">${PERFIL[u.perfil]}</span></div><button data-act="senha">Trocar senha</button><button data-act="sair">Sair</button></div></details></div>
+    </aside>
+    <div class="main">
+      <header class="mtop"><div class="search"><span class="s-ic">${ico('search')}</span><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
+        <div class="who-top"><b>${u.nome}</b><span>SRE Metropolitana A · ${PERFIL[u.perfil]}</span></div>
+        <div class="mob-user"><button class="btn-sm" data-act="senha">Senha</button><button class="btn-sm" data-act="sair">Sair</button></div></header>
+      <main id="main" class="content" tabindex="-1">
+        ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
+        <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
+          <div class="row no-print">${pagina.acoes || ''}</div></div>
+        ${pagina.chips ? html`<nav class="chips" aria-label="${pagina.chips.rotulo}"><span class="lb">${pagina.chips.rotulo}:</span>${pagina.chips.itens.map(([h, t, at]) => html`<a href="${h}" ${attr(at, 'aria-current="page"')}>${t}</a>`)}</nav>` : ''}
+        ${pagina.corpo}</main></div></div>
     <datalist id="dl-assuntos">${['Prestação de contas', 'Solicitação de escola', 'Aposentadoria', 'Averbação de tempo', 'Designação', 'Resposta ao TCE', 'Resposta ao MP'].map(a => html`<option value="${a}">`)}</datalist>`;
 }
 
@@ -699,7 +705,7 @@ async function render() {
     if (state.user) { await refreshEstrutura(); await carregaAlertas(); }
   }
   if (!state.user) { app.innerHTML = (partes[0] === 'esqueci' ? esqueciView() : loginView()).s; return; }
-  const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="shell"><main id="main" class="content">${skeleton()}</main></div>`.s;
+  const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="app"><div class="rail" style="visibility:hidden"></div><div class="main"><main id="main" class="content">${skeleton()}</main></div></div>`.s;
   else hist.innerHTML = skeleton().s;
   let pagina;
   try {
