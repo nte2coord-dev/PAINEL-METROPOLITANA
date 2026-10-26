@@ -22,7 +22,7 @@ create table if not exists users (
   id serial primary key,
   nome text not null,
   email text unique not null,
-  senha_hash text not null,
+  senha_hash text,
   perfil text not null check (perfil in ('superintendente','admin','diretor','coord_setor')),
   unit_id int references units(id),
   sector_id int references sectors(id),
@@ -141,3 +141,8 @@ create table if not exists audit_log (
   em timestamptz not null default now()
 );
 create index if not exists audit_entidade_idx on audit_log(entidade, entidade_id);
+
+-- Acesso sem login: senhas e recuperação de senha deixaram de existir
+alter table users alter column senha_hash drop not null;
+alter table users drop column if exists reset_token_hash;
+alter table users drop column if exists reset_expires;

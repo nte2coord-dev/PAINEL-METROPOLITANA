@@ -1,10 +1,4 @@
-const jwt = require('jsonwebtoken');
 const { q } = require('./db');
-
-const SECRET = process.env.JWT_SECRET || (() => {
-  if (process.env.NODE_ENV === 'production') throw new Error('JWT_SECRET é obrigatório em produção');
-  return 'dev-secret-nao-usar-em-producao';
-})();
 
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -12,46 +6,21 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-function signToken(user) {
-  return jwt.sign({ uid: user.id }, SECRET, { expiresIn: '12h' });
-}
-
-// Modo teste: AUTH_DISABLED=true entra automaticamente como um usuário (nunca em produção).
-// AUTH_DISABLED_EMAIL escolhe quem; sem ele, usa o primeiro administrador.
-const SEM_LOGIN = process.env.AUTH_DISABLED === 'true' && process.env.NODE_ENV !== 'production';
-if (SEM_LOGIN) console.warn('[ATENÇÃO] AUTH_DISABLED=true: login desligado (apenas para testes locais).');
-
-const USER_SELECT = `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.ativo,
-                un.sigla as unit_sigla, s.nome as sector_nome
-           from users u left join units un on un.id = u.unit_id
-           left join sectors s on s.id = u.sector_id`;
-
+// Sem login: todo acesso age como o usuário "Administrador" do sistema (criado na inicialização).
+// A estrutura de perfis (RBAC) continua no código para quando o acesso restrito voltar.
 async function loadUser(req, _res, next) {
   try {
-    if (SEM_LOGIN) {
-      const email = (process.env.AUTH_DISABLED_EMAIL || '').toLowerCase();
-      const { rows } = email
-        ? await q(`${USER_SELECT} where u.ativo and u.email = $1`, [email])
-        : await q(`${USER_SELECT} where u.ativo and u.perfil = 'admin' order by u.id limit 1`);
-      if (rows[0]) req.user = rows[0];
-      return next();
-    }
-    const token = req.cookies && req.cookies.token;
-    if (token) {
-      const { uid } = jwt.verify(token, SECRET);
-      const { rows } = await q(
-        `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.ativo,
-                un.sigla as unit_sigla, s.nome as sector_nome
-           from users u left join units un on un.id = u.unit_id
-           left join sectors s on s.id = u.sector_id where u.id = $1`, [uid]);
-      if (rows[0] && rows[0].ativo) req.user = rows[0];
-    }
-  } catch (_) { /* token inválido/expirado: segue anônimo */ }
-  next();
+    const { rows } = await q(
+      `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.ativo,
+              null::text as unit_sigla, null::text as sector_nome
+         from users u where u.perfil = 'admin' and u.ativo order by u.id limit 1`);
+    if (rows[0]) req.user = rows[0];
+    next();
+  } catch (e) { next(e); }
 }
 
 const requireAuth = (req, _res, next) =>
-  req.user ? next() : next(new HttpError(401, 'Faça login para continuar.'));
+  req.user ? next() : next(new HttpError(401, 'Usuário do sistema não encontrado.'));
 
 const requireRole = (...perfis) => (req, _res, next) =>
   req.user && perfis.includes(req.user.perfil) ? next() : next(new HttpError(403, 'Sem permissão para esta ação.'));
@@ -107,6 +76,6 @@ const isDate = v => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !i
 const str = (v, max = 500) => (v == null ? null : String(v).trim().slice(0, max) || null);
 
 module.exports = {
-  wrap, HttpError, signToken, loadUser, requireAuth, requireRole, sectorScope, canSeeSector,
+  wrap, HttpError, loadUser, requireAuth, requireRole, sectorScope, canSeeSector,
   canWrite, audit, refreshConfig, getDiasBreve, prazoStatusSql, isDate, str,
 };

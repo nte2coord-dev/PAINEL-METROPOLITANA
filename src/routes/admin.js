@@ -1,10 +1,8 @@
-const bcrypt = require('bcryptjs');
 const router = require('express').Router();
 const { q } = require('../db');
 const {
   wrap, HttpError, requireAuth, requireRole, sectorScope, canSeeSector, audit, refreshConfig, str,
 } = require('../util');
-const { emailOk, senhaOk } = require('./auth');
 const { MODELOS_INDICADOR } = require('../org');
 
 router.use(requireAuth);
@@ -81,68 +79,6 @@ router.delete('/setores/:id', requireRole('admin'), wrap(async (req, res) => {
   if (!rows[0]) throw new HttpError(404, 'Setor não encontrado.');
   await audit(req, 'excluir', 'sectors', rows[0].id, rows[0], null);
   res.json({ ok: true });
-}));
-
-// ---------- Usuários (admin; superintendente só lê) ----------
-router.get('/usuarios', requireRole('admin', 'superintendente'), wrap(async (_req, res) => {
-  res.json((await q(
-    `select u.id, u.nome, u.email, u.perfil, u.ativo, u.unit_id, u.sector_id, un.sigla as unidade, s.nome as setor
-       from users u left join units un on un.id = u.unit_id left join sectors s on s.id = u.sector_id
-      order by u.nome`)).rows);
-}));
-
-async function validarUsuario(b, criando) {
-  const nome = str(b.nome, 150); const email = str(b.email, 200)?.toLowerCase();
-  if (!nome) throw new HttpError(400, 'Informe o nome.');
-  if (!emailOk(email)) throw new HttpError(400, 'Use o e-mail institucional (@educacao.mg.gov.br).');
-  if (!['superintendente', 'admin', 'diretor', 'coord_setor'].includes(b.perfil)) throw new HttpError(400, 'Perfil inválido.');
-  let unit_id = b.unit_id ? Number(b.unit_id) : null; let sector_id = b.sector_id ? Number(b.sector_id) : null;
-  if (b.perfil === 'coord_setor') {
-    if (!sector_id) throw new HttpError(400, 'Coordenador de setor precisa de um setor.');
-    unit_id = (await q(`select unit_id from sectors where id = $1`, [sector_id])).rows[0]?.unit_id;
-    if (!unit_id) throw new HttpError(400, 'Setor inválido.');
-  } else if (b.perfil === 'diretor') {
-    if (!unit_id) throw new HttpError(400, 'Diretor precisa de uma unidade.');
-    sector_id = null;
-  } else { unit_id = null; sector_id = null; }
-  if (criando && !senhaOk(b.senha)) throw new HttpError(400, 'A senha precisa ter ao menos 8 caracteres.');
-  return { nome, email, perfil: b.perfil, unit_id, sector_id };
-}
-
-router.post('/usuarios', requireRole('admin'), wrap(async (req, res) => {
-  const u = await validarUsuario(req.body, true);
-  try {
-    const { rows } = await q(
-      `insert into users (nome, email, senha_hash, perfil, unit_id, sector_id) values ($1,$2,$3,$4,$5,$6)
-       returning id, nome, email, perfil, unit_id, sector_id, ativo`,
-      [u.nome, u.email, await bcrypt.hash(req.body.senha, 10), u.perfil, u.unit_id, u.sector_id]);
-    await audit(req, 'criar', 'users', rows[0].id, null, rows[0]);
-    res.status(201).json(rows[0]);
-  } catch (e) {
-    if (e.code === '23505') throw new HttpError(409, 'Já existe usuário com este e-mail.');
-    throw e;
-  }
-}));
-
-router.put('/usuarios/:id', requireRole('admin'), wrap(async (req, res) => {
-  const { rows: [antes] } = await q(
-    `select id, nome, email, perfil, unit_id, sector_id, ativo from users where id = $1`, [req.params.id]);
-  if (!antes) throw new HttpError(404, 'Usuário não encontrado.');
-  const u = await validarUsuario(req.body, false);
-  const ativo = req.body.ativo !== false;
-  if (antes.id === req.user.id && (!ativo || u.perfil !== 'admin')) {
-    throw new HttpError(400, 'Você não pode desativar ou rebaixar o seu próprio acesso.');
-  }
-  if (req.body.senha) {
-    if (!senhaOk(req.body.senha)) throw new HttpError(400, 'A senha precisa ter ao menos 8 caracteres.');
-    await q(`update users set senha_hash = $1 where id = $2`, [await bcrypt.hash(req.body.senha, 10), antes.id]);
-  }
-  const { rows } = await q(
-    `update users set nome=$1, email=$2, perfil=$3, unit_id=$4, sector_id=$5, ativo=$6 where id=$7
-     returning id, nome, email, perfil, unit_id, sector_id, ativo`,
-    [u.nome, u.email, u.perfil, u.unit_id, u.sector_id, ativo, antes.id]);
-  await audit(req, 'editar', 'users', antes.id, antes, rows[0]);
-  res.json(rows[0]);
 }));
 
 // ---------- Configuração e tipos de demanda ----------

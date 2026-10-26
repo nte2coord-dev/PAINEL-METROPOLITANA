@@ -12,21 +12,11 @@ services:
       - key: NODE_VERSION
         value: 22
       - key: NODE_ENV
-        value: production   # exige JWT_SECRET, cookie seguro e ignora AUTH_DISABLED
+        value: production
       - key: DATABASE_URL
         fromDatabase:
           name: painel-db
           property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
-      - key: ADMIN_EMAIL
-        sync: false          # informe no painel do Render (ex.: fulano@educacao.mg.gov.br)
-      - key: ADMIN_PASSWORD
-        sync: false
-      - key: ALLOWED_EMAIL_DOMAIN
-        value: educacao.mg.gov.br
-      - key: PUBLIC_URL
-        sync: false          # ex.: https://painel-sre-metropolitana-a.onrender.com
 databases:
   - name: painel-db
     plan: basic-256mb        # o plano "free" do Postgres expira em 30 dias

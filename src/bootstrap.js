@@ -1,5 +1,3 @@
-const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 const { q } = require('./db');
 const { UNITS, TIPOS_DEMANDA, CONFIG_DEFAULTS } = require('./org');
 
@@ -18,15 +16,11 @@ async function seed() {
     await q(`insert into config (chave, valor) values ($1,$2) on conflict do nothing`, [k, v]);
   }
 
-  const { rows: [{ n }] } = await q(`select count(*)::int n from users`);
+  // Usuário único do sistema (sem senha): usado para registrar autoria nos lançamentos
+  const { rows: [{ n }] } = await q(`select count(*)::int n from users where perfil = 'admin' and ativo`);
   if (n === 0) {
-    const email = (process.env.ADMIN_EMAIL || 'admin@educacao.mg.gov.br').toLowerCase();
-    let senha = process.env.ADMIN_PASSWORD;
-    const gerada = !senha;
-    if (gerada) senha = crypto.randomBytes(9).toString('base64url');
-    await q(`insert into users (nome, email, senha_hash, perfil) values ($1,$2,$3,'admin')`,
-      ['Administrador', email, await bcrypt.hash(senha, 10)]);
-    console.log(`[bootstrap] Administrador criado: ${email}` + (gerada ? ` | senha temporária: ${senha}` : ''));
+    await q(`insert into users (nome, email, senha_hash, perfil) values ('Administrador', 'admin@painel.local', null, 'admin')
+             on conflict (email) do update set perfil = 'admin', ativo = true`);
   }
 }
 

@@ -31,7 +31,6 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const data = await r.json().catch(() => ({}));
-  if (r.status === 401 && state.user) { state.user = null; render(); }
   if (!r.ok) { const e = new Error(data.erro || 'Erro inesperado.'); e.data = data; throw e; }
   return data;
 }
@@ -442,17 +441,11 @@ async function viewRelatorios() {
 }
 
 async function viewAdmin() {
-  if (!isAdmin() && state.user.perfil !== 'superintendente') return { titulo: 'Administração', corpo: vazio('Sem permissão') };
-  const [usuarios, cfg, aud] = await Promise.all([api('/usuarios'), api('/config'), api('/auditoria')]);
-  return { titulo: 'Administração', crumbs: [['#/', 'Visão Geral'], [null, 'Administração']], acoes: isAdmin() ? html`<button class="btn-primary" data-act="novo-user">+ Novo usuário</button>` : '',
-    corpo: html`<section class="card"><h2>Usuários</h2><div class="tablewrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Lotação</th><th>Ativo</th><th></th></tr></thead><tbody>
-    ${usuarios.map(u => html`<tr><td>${u.nome}</td><td>${u.email}</td><td>${PERFIL[u.perfil]}</td><td>${u.setor || u.unidade || '–'}</td><td>${u.ativo ? 'Sim' : 'Não'}</td>
-      <td>${isAdmin() ? html`<button class="btn-sm" data-act="edit-user" data-id="${u.id}">Editar</button>` : ''}</td></tr>`)}</tbody></table></div></section>
-    ${isAdmin() ? html`<section class="card mt"><h2>Parâmetros</h2><p>Dias para “vence em breve”: <b>${cfg.dias_vence_em_breve}</b> · Periodicidade do consolidado: <b>${cfg.periodicidade_consolidado}</b></p>
+  const [cfg, aud] = await Promise.all([api('/config'), api('/auditoria')]);
+  return { titulo: 'Administração', crumbs: [['#/', 'Visão Geral'], [null, 'Administração']], corpo: html`    ${isAdmin() ? html`<section class="card mt"><h2>Parâmetros</h2><p>Dias para “vence em breve”: <b>${cfg.dias_vence_em_breve}</b> · Periodicidade do consolidado: <b>${cfg.periodicidade_consolidado}</b></p>
     <button data-act="config">Alterar</button> <button data-act="novo-tipo">+ Tipo de demanda</button></section>` : ''}
-    <section class="card mt"><h2>Trilha de auditoria (últimos 300)</h2><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Entidade</th></tr></thead><tbody>
-    ${aud.map(a => html`<tr><td>${fmtDataHora(a.em)}</td><td>${a.user_email || '—'}</td><td>${a.acao}</td><td>${a.entidade} #${a.entidade_id ?? ''}</td></tr>`)}</tbody></table></div></section>`,
-    usuarios };
+    <section class="card mt"><h2>Histórico de alterações (últimos 300)</h2><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Ação</th><th>Entidade</th></tr></thead><tbody>
+    ${aud.map(a => html`<tr><td>${fmtDataHora(a.em)}</td><td>${a.acao}</td><td>${a.entidade} #${a.entidade_id ?? ''}</td></tr>`)}</tbody></table></div></section>` };
 }
 
 // ---------- ações (formulários) ----------
@@ -557,8 +550,6 @@ const acoes = {
       { name: 'unit_id', label: 'Unidade', type: 'select', required: true, options: state.units.map(u => [u.id, u.sigla]) }, { name: 'nome', label: 'Nome do setor', required: true },
       { name: 'ramais', label: 'Ramais' }, { name: 'sala', label: 'Sala' }, { name: 'emails', label: 'E-mails', full: true }] });
   },
-  async 'novo-user'() { await dialogUsuario(); },
-  async 'edit-user'(el, d) { const u = (await api('/usuarios')).find(x => x.id === Number(d.id)); await dialogUsuario(u); },
   async config() {
     const c = await api('/config');
     await formDialog({ titulo: 'Parâmetros', valores: c, enviar: x => api('/config', { method: 'PUT', body: x }), campos: [
@@ -599,17 +590,6 @@ function camposDemanda() {
     { name: 'prioridade', label: 'Prioridade', type: 'select', options: mapa(PRIOR), default: 'media' }, { name: 'responsavel', label: 'Responsável' },
     { name: 'status', label: 'Status', type: 'select', options: mapa(STATUS), default: 'aberta' }, { name: 'data_conclusao', label: 'Data de conclusão', type: 'date', hint: 'Se concluída e em branco, usa hoje.' },
     { name: 'observacoes', label: 'Observações', type: 'textarea', full: true }];
-}
-
-async function dialogUsuario(u) {
-  const campos = [{ name: 'nome', label: 'Nome', required: true, full: true }, { name: 'email', label: 'E-mail institucional', type: 'email', required: true, full: true, hint: 'Deve terminar em @educacao.mg.gov.br' },
-    { name: 'perfil', label: 'Perfil', type: 'select', required: true, options: mapa(PERFIL), default: 'coord_setor' },
-    { name: 'unit_id', label: 'Unidade (diretor)', type: 'select', vazio: '—', options: state.units.map(x => [x.id, x.sigla]) },
-    { name: 'sector_id', label: 'Setor (coordenador de setor)', type: 'select', vazio: '—', options: state.sectors.map(s => [s.id, `${s.unidade} · ${s.nome}`]), full: true },
-    { name: 'senha', label: u ? 'Nova senha (opcional)' : 'Senha inicial', type: 'password', required: !u, hint: 'Mínimo de 8 caracteres.', full: true },
-    ...(u ? [{ name: 'ativo', label: 'Usuário ativo', type: 'checkbox' }] : [])];
-  await formDialog({ titulo: u ? 'Editar usuário' : 'Novo usuário', campos, valores: u || {},
-    enviar: x => api(u ? '/usuarios/' + u.id : '/usuarios', { method: u ? 'PUT' : 'POST', body: { ...x, ativo: u ? x.ativo : true } }) });
 }
 
 function baixarCsv(lista, nome) {
@@ -658,18 +638,15 @@ function shell(pagina, rota) {
     item('#/contatos', 'Contatos', 'phone', rota === '#/contatos') + item('#/relatorios', 'Relatórios', 'doc', rota === '#/relatorios') +
     (['admin', 'superintendente'].includes(u.perfil) ? item('#/admin', 'Administração', 'gear', rota === '#/admin') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
-  const iniciais = u.nome.split(/\s+/).map(x => x[0]).slice(0, 2).join('').toUpperCase();
   return html`<div class="app"><aside class="rail" aria-label="Navegação principal">
       <a class="rail-logo" href="#/" data-tip="SRE Metropolitana A" aria-label="SRE Metropolitana A – início">${ico('grad')}</a>
       <nav class="rail-nav">${new Raw(nav)}</nav>
       <div class="rail-end"><button class="rl" data-act="tema" data-tip="Tema claro/escuro" aria-label="Alternar tema claro/escuro">${ico('moon')}</button>
-        <details class="user-menu"><summary class="rl avatar-btn" data-tip="${esc(u.nome)}" aria-label="Menu do usuário"><span class="avatar">${iniciais}</span></summary>
-          <div class="drop"><div class="who"><b>${u.nome}</b><span class="small muted">${PERFIL[u.perfil]}</span></div><button data-act="senha">Trocar senha</button><button data-act="sair">Sair</button></div></details></div>
+      </div>
     </aside>
     <div class="main">
       <header class="mtop"><div class="search"><span class="s-ic">${ico('search')}</span><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
-        <div class="who-top"><b>${u.nome}</b><span>SRE Metropolitana A · ${PERFIL[u.perfil]}</span></div>
-        <div class="mob-user"><button class="btn-sm" data-act="senha">Senha</button><button class="btn-sm" data-act="sair">Sair</button></div></header>
+        <div class="who-top"><b>SRE Metropolitana A</b><span>Painel de Gestão</span></div></header>
       <main id="main" class="content" tabindex="-1">
         ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
         <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
@@ -679,32 +656,14 @@ function shell(pagina, rota) {
     <datalist id="dl-assuntos">${['Prestação de contas', 'Solicitação de escola', 'Aposentadoria', 'Averbação de tempo', 'Designação', 'Resposta ao TCE', 'Resposta ao MP'].map(a => html`<option value="${a}">`)}</datalist>`;
 }
 
-function loginView() {
-  return html`<div class="login"><div class="card"><h1>Painel SRE Metropolitana A</h1><p class="muted">Acesse com seu e-mail institucional.</p>
-    <div id="le"></div><form data-form="login"><div class="field"><label for="em" class="req">E-mail</label><input id="em" name="email" type="email" required placeholder="nome@educacao.mg.gov.br" autocomplete="username"></div>
-    <div class="field"><label for="se" class="req">Senha</label><input id="se" name="senha" type="password" required autocomplete="current-password"></div>
-    <button class="btn-primary" style="width:100%;justify-content:center">Entrar</button></form>
-    <p class="small"><a href="#/esqueci">Esqueci minha senha</a></p></div></div>`;
-}
-function esqueciView() {
-  return html`<div class="login"><div class="card"><h1>Recuperar senha</h1><div id="le"></div><form data-form="esqueci"><div class="field"><label class="req" for="em">E-mail institucional</label><input id="em" name="email" type="email" required></div>
-    <button class="btn-primary">Gerar link de redefinição</button></form><p class="small"><a href="#/">Voltar ao login</a></p></div></div>`;
-}
-function redefinirView(token) {
-  return html`<div class="login"><div class="card"><h1>Nova senha</h1><div id="le"></div><form data-form="redefinir" data-token="${token}"><div class="field"><label class="req" for="ns">Nova senha</label><input id="ns" name="nova" type="password" minlength="8" required autocomplete="new-password"><div class="hint">Mínimo de 8 caracteres.</div></div>
-    <button class="btn-primary">Salvar nova senha</button></form></div></div>`;
-}
-
 let seq = 0;
 async function render() {
   const app = $('#app'); const mine = ++seq;
   const h = location.hash || '#/'; const [rota, query] = h.split('?'); const partes = rota.replace('#/', '').split('/');
-  if (partes[0] === 'redefinir') { app.innerHTML = redefinirView(partes[1]).s; return; }
   if (!state.user) {
-    try { state.user = await api('/auth/me'); } catch (_) { state.user = null; }
-    if (state.user) { await refreshEstrutura(); await carregaAlertas(); }
+    try { state.user = await api('/me'); await refreshEstrutura(); await carregaAlertas(); }
+    catch (e) { state.user = null; app.innerHTML = html`<div class="content"><div class="error" role="alert">Não foi possível carregar o painel: ${e.message}</div></div>`.s; return; }
   }
-  if (!state.user) { app.innerHTML = (partes[0] === 'esqueci' ? esqueciView() : loginView()).s; return; }
   const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="app"><div class="rail" style="visibility:hidden"></div><div class="main"><main id="main" class="content">${skeleton()}</main></div></div>`.s;
   else hist.innerHTML = skeleton().s;
   let pagina;
@@ -738,9 +697,6 @@ document.addEventListener('click', async ev => {
     const act = el.dataset.act;
     try {
       if (act === 'tema') alternaTema();
-      else if (act === 'sair') { await api('/auth/logout', { method: 'POST', body: {} }); state.user = null; location.hash = '#/'; render(); }
-      else if (act === 'senha') await formDialog({ titulo: 'Trocar senha', enviar: x => api('/auth/senha', { method: 'POST', body: x }), campos: [
-        { name: 'atual', label: 'Senha atual', type: 'password', required: true, full: true }, { name: 'nova', label: 'Nova senha (mín. 8)', type: 'password', required: true, full: true }] });
       else if (acoes[act]) await acoes[act](el, el.dataset);
     } catch (e) { toast(e.message, true); }
     return;
@@ -754,7 +710,6 @@ document.addEventListener('click', async ev => {
     } catch (e) { toast(e.message, true); }
   }
   if (!ev.target.closest('.search')) $('#resultados')?.classList.add('hidden');
-  if (!ev.target.closest('.user-menu')) document.querySelector('.user-menu')?.removeAttribute('open');
 });
 
 document.addEventListener('change', ev => {
@@ -768,12 +723,9 @@ document.addEventListener('change', ev => {
 document.addEventListener('submit', async ev => {
   const f = ev.target.closest('[data-form]'); if (!f) return;
   ev.preventDefault(); const tipo = f.dataset.form; const v = Object.fromEntries(new FormData(f));
-  const erro = m => { const e = $('#le'); if (e) e.innerHTML = html`<div class="error" role="alert">${m}</div>`.s; };
+  const erro = m => toast(m, true);
   try {
-    if (tipo === 'login') { await api('/auth/login', { method: 'POST', body: v }); state.user = null; location.hash = '#/'; await render(); }
-    else if (tipo === 'esqueci') { const r = await api('/auth/esqueci', { method: 'POST', body: v }); $('#le').innerHTML = html`<div class="toast" style="margin-bottom:12px">${r.mensagem}</div>`.s; }
-    else if (tipo === 'redefinir') { await api('/auth/redefinir', { method: 'POST', body: { token: f.dataset.token, nova: v.nova } }); toast('Senha alterada. Faça login.'); location.hash = '#/'; }
-    else if (tipo === 'filtros') { const p = new URLSearchParams(Object.entries(v).filter(([, x]) => x)); irPara('#/lista?' + p); }
+    if (tipo === 'filtros') { const p = new URLSearchParams(Object.entries(v).filter(([, x]) => x)); irPara('#/lista?' + p); }
     else if (tipo === 'contatos') irPara('#/contatos?q=' + encodeURIComponent(v.q));
   } catch (e) { erro(e.message); }
 });
