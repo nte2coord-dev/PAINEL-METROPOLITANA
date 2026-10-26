@@ -1,5 +1,4 @@
 // Dados fictícios para demonstração (SEED_DEMO=true). Só roda se não houver demandas.
-const bcrypt = require('bcryptjs');
 const { q } = require('./db');
 
 let seedN = 42;
@@ -9,20 +8,10 @@ const addDias = (n) => { const d = new Date(); d.setDate(d.getDate() + n); retur
 
 async function run() {
   if ((await q(`select count(*)::int n from demandas`)).rows[0].n > 0) return;
-  const hash = await bcrypt.hash('Painel@2026', 10);
-  const units = (await q(`select * from units`)).rows;
-  for (const u of units) {
-    const slug = u.sigla.toLowerCase().replace(/[^a-z]/g, '');
-    await q(`insert into users (nome,email,senha_hash,perfil,unit_id) values ($1,$2,$3,'diretor',$4) on conflict do nothing`,
-      [`Diretor(a) ${u.sigla}`, `diretor.${slug}@educacao.mg.gov.br`, hash, u.id]);
-  }
-  await q(`insert into users (nome,email,senha_hash,perfil) values ('Superintendente','superintendente@educacao.mg.gov.br',$1,'superintendente') on conflict do nothing`, [hash]);
   const setores = (await q(`select * from sectors`)).rows;
   let i = 0;
   for (const s of setores) {
     i++;
-    await q(`insert into users (nome,email,senha_hash,perfil,unit_id,sector_id) values ($1,$2,$3,'coord_setor',$4,$5) on conflict do nothing`,
-      [`Coord. ${s.nome}`.slice(0, 80), `coord${i}@educacao.mg.gov.br`, hash, s.unit_id, s.id]);
     const n = 8 + Math.floor(rnd() * 14);
     const dem = [];
     for (let k = 0; k < n; k++) {
@@ -44,6 +33,6 @@ async function run() {
     }
     if (dem.length) await q(`insert into acompanhamentos (demanda_id, texto, tipo) values ($1,'Processo encaminhado para análise.','despacho')`, [dem[0]]);
   }
-  console.log('[demo] dados fictícios criados. Senha de todos os usuários demo: Painel@2026 (ex.: superintendente@educacao.mg.gov.br)');
+  console.log('[demo] dados fictícios criados.');
 }
 module.exports = { run };
