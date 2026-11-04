@@ -9,7 +9,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "import:contatos": "node src/import-contatos.js",
-    "test": "node --test test/"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

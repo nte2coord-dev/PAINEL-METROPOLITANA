@@ -190,4 +190,32 @@ router.get('/busca', wrap(async (req, res) => {
   res.json({ setores, demandas });
 }));
 
+// ---------- Contas para AUTH_ENABLED ----------
+router.get('/usuarios', requireRole('admin'), wrap(async (_req, res) => {
+  res.json((await q(`select id,nome,email,perfil,unit_id,sector_id,diretor_id,ativo,created_at from users order by nome`)).rows);
+}));
+router.post('/usuarios', requireRole('admin'), wrap(async (req, res) => {
+  const nome=str(req.body.nome,150), email=str(req.body.email,254)?.toLowerCase(), senha=String(req.body.senha||'');
+  const perfil=req.body.perfil; const unitId=req.body.unit_id ? Number(req.body.unit_id) : null;
+  const sectorId=req.body.sector_id ? Number(req.body.sector_id) : null; const diretorId=req.body.diretor_id ? Number(req.body.diretor_id) : null;
+  if(!nome||!email||!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)||senha.length<12) throw new HttpError(400,'Informe nome, e-mail válido e senha com pelo menos 12 caracteres.');
+  if(!['superintendente','admin','diretor','coord_setor'].includes(perfil)) throw new HttpError(400,'Perfil inválido.');
+  if(perfil==='coord_setor'&&(!sectorId||!(await q(`select 1 from sectors where id=$1`,[sectorId])).rowCount)) throw new HttpError(400,'Coordenador precisa estar vinculado a um setor válido.');
+  if(perfil==='diretor'&&unitId&&!(await q(`select 1 from units where id=$1`,[unitId])).rowCount) throw new HttpError(400,'Unidade inválida.');
+  if(diretorId&&!(await q(`select 1 from diretores where id=$1 and ativo`,[diretorId])).rowCount) throw new HttpError(400,'Vínculo de diretor inválido.');
+  const {hashSenha}=require('../auth');
+  const {rows:[u]}=await q(`insert into users(nome,email,senha_hash,perfil,unit_id,sector_id,diretor_id) values($1,$2,$3,$4,$5,$6,$7) returning id,nome,email,perfil,unit_id,sector_id,diretor_id,ativo`,[nome,email,hashSenha(senha),perfil,unitId,sectorId,diretorId]);
+  await audit(req,'criar','users',u.id,null,{id:u.id,perfil:u.perfil});res.status(201).json(u);
+}));
+router.put('/usuarios/:id', requireRole('admin'), wrap(async(req,res)=>{
+  const id=Number(req.params.id), perfil=req.body.perfil, ativo=!!req.body.ativo;
+  if(!Number.isInteger(id)||!['superintendente','admin','diretor','coord_setor'].includes(perfil)) throw new HttpError(400,'Dados inválidos.');
+  const unitId=req.body.unit_id?Number(req.body.unit_id):null, sectorId=req.body.sector_id?Number(req.body.sector_id):null, diretorId=req.body.diretor_id?Number(req.body.diretor_id):null;
+  const {rows:[antes]}=await q(`select id,perfil,unit_id,sector_id,diretor_id,ativo from users where id=$1`,[id]); if(!antes) throw new HttpError(404,'Usuário não encontrado.');
+  if(perfil==='coord_setor'&&(!sectorId||!(await q(`select 1 from sectors where id=$1`,[sectorId])).rowCount)) throw new HttpError(400,'Coordenador precisa estar vinculado a um setor.');
+  if(diretorId&&!(await q(`select 1 from diretores where id=$1 and ativo`,[diretorId])).rowCount) throw new HttpError(400,'Vínculo de diretor inválido.');
+  const {rows:[u]}=await q(`update users set perfil=$1,unit_id=$2,sector_id=$3,diretor_id=$4,ativo=$5 where id=$6 returning id,nome,email,perfil,unit_id,sector_id,diretor_id,ativo`,[perfil,unitId,sectorId,diretorId,ativo,id]);
+  await q(`delete from sessoes where user_id=$1`,[id]);await audit(req,'editar','users',id,{perfil:antes.perfil},{perfil:u.perfil,ativo:u.ativo});res.json(u);
+}));
+
 module.exports = router;

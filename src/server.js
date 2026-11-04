@@ -31,9 +31,14 @@ app.use('/api', (req, res, next) => {
   }
   next();
 });
+app.use('/api/auth', require('./routes/auth'));
+const feriasRoutes = require('./routes/ferias');
+app.use('/api/ferias/publico', feriasRoutes.publicRouter);
 app.use('/api', loadUser);
-app.get('/api/me', (req, res) => (req.user ? res.json(req.user) : res.status(500).json({ erro: 'Usuário do sistema não encontrado.' })));
+app.get('/api/me', (req, res) => (req.user ? res.json(req.user) : res.status(401).json({ erro: 'Faça login para continuar.' })));
 app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/ferias', feriasRoutes.router);
+app.use('/api/integracoes', require('./routes/integrations'));
 app.use('/api', require('./routes/data'));
 app.use('/api', require('./routes/admin'));
 

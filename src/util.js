@@ -6,12 +6,25 @@ class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-// Sem login: todo acesso age como o usuário "Administrador" do sistema (criado na inicialização).
-// A estrutura de perfis (RBAC) continua no código para quando o acesso restrito voltar.
+// Sem login em desenvolvimento, todo acesso continua usando o admin local.
 async function loadUser(req, _res, next) {
   try {
+    if (process.env.AUTH_ENABLED === 'true') {
+      const { obterCookie, hashToken } = require('./auth');
+      const token = obterCookie(req);
+      if (token) {
+        const { rows } = await q(
+          `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.diretor_id, u.ativo,
+                  un.sigla as unit_sigla, s.nome as sector_nome
+             from sessoes ss join users u on u.id = ss.user_id
+             left join units un on un.id = u.unit_id left join sectors s on s.id = u.sector_id
+            where ss.token_hash = $1 and ss.expira_em > now() and u.ativo`, [hashToken(token)]);
+        if (rows[0]) req.user = rows[0];
+      }
+      return next();
+    }
     const { rows } = await q(
-      `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.ativo,
+      `select u.id, u.nome, u.email, u.perfil, u.unit_id, u.sector_id, u.diretor_id, u.ativo,
               null::text as unit_sigla, null::text as sector_nome
          from users u where u.perfil = 'admin' and u.ativo order by u.id limit 1`);
     if (rows[0]) req.user = rows[0];
