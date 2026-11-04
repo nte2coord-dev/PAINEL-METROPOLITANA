@@ -39,7 +39,7 @@ function toast(msg, err) {
   $('#toasts').append(t); setTimeout(() => t.remove(), 4500);
 }
 
-const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0 };
+const state = { user: null, units: [], sectors: [], tipos: [], alertasNovos: 0, authEnabled: false };
 const isAdmin = () => state.user.perfil === 'admin';
 const podeAlertar = () => ['admin', 'superintendente', 'diretor'].includes(state.user.perfil);
 const podeLancar = sid => isAdmin() || (state.user.perfil === 'coord_setor' && state.user.sector_id === Number(sid));
@@ -440,10 +440,37 @@ async function viewRelatorios() {
     <div class="card"><h2>Visão geral (PDF)</h2><p class="muted small">Abre a impressão do navegador; escolha “Salvar como PDF”.</p><button data-act="imprimir">Imprimir / PDF</button></div></div>` };
 }
 
+async function viewFerias(id) {
+  const gestores = ['admin', 'superintendente'].includes(state.user.perfil);
+  const diretorio = await api('/ferias/diretores');
+  if (!id) {
+    const escolas = gestores ? await api('/ferias/escolas') : [];
+    const lotes = gestores ? await api('/ferias/lotes') : [];
+    return { titulo: 'Férias e Afastamentos', sub: 'Saldo de 60 dias corridos por diretor; afastamentos não descontam do saldo.',
+      crumbs: [['#/', 'Visão Geral'], [null, 'Férias e Afastamentos']],
+      acoes: html`${gestores ? html`<button data-act="nova-escola">+ Escola</button><button data-act="novo-diretor">+ Diretor</button><button data-act="nova-lote">Aplicar período em lote</button><button data-act="emitir-relatorio">Relatório geral / PDF</button>` : ''}<a class="btn" href="/ferias-publico.html" target="_blank" rel="noopener">Portal público</a>`,
+      corpo: html`<div class="card"><div class="tablewrap"><table><thead><tr><th>Diretor</th><th>Escola</th><th>Unidade</th><th>Períodos</th><th>Gozados</th><th>Saldo</th></tr></thead><tbody>
+        ${diretorio.length ? diretorio.map(d => html`<tr><td><a href="#/ferias/${d.id}">${d.nome}</a></td><td>${d.escola}</td><td>${d.unidade || '–'}</td><td>${d.quantidade_periodos} / 6</td><td>${d.gozados} / 60</td><td><b>${d.saldo} dias</b></td></tr>`) : ''}
+        </tbody></table></div>${diretorio.length ? '' : vazio('Nenhum diretor cadastrado', gestores ? 'Cadastre primeiro uma escola e depois o diretor.' : 'Peça à Administração que cadastre os diretores.')}</div>
+        ${gestores ? html`<section class="card mt"><h2>Lotes de férias</h2>${lotes.length ? html`<div class="tablewrap"><table><thead><tr><th>Lote</th><th>Períodos criados</th><th>Datas aplicadas</th><th></th></tr></thead><tbody>${lotes.map(l=>html`<tr><td>${l.nome}</td><td>${l.periodos}</td><td>${fmtData(l.data_inicio)} a ${fmtData(l.data_fim)}</td><td><button class="btn-sm" data-act="editar-lote" data-id="${l.id}">Editar todos</button> <button class="btn-sm btn-danger" data-act="remover-lote" data-id="${l.id}">Remover lote</button></td></tr>`)}</tbody></table></div>`:vazio('Nenhum lote lançado')}</section><p class="small muted">Escolas cadastradas: ${escolas.length}. O portal público não exibe afastamentos nem links de Drive.</p>` : ''}` };
+  }
+  const d = diretorio.find(x => x.id === Number(id));
+  if (!d) return { titulo: 'Diretor não encontrado', corpo: vazio('Registro não encontrado ou sem permissão.') };
+  const [p, a] = await Promise.all([api('/ferias/periodos?diretor_id=' + d.id), api('/ferias/afastamentos?diretor_id=' + d.id)]);
+  const dias = (x,y) => { const aa=x.split('-').map(Number), bb=y.split('-').map(Number); return Math.round((Date.UTC(bb[0],bb[1]-1,bb[2])-Date.UTC(aa[0],aa[1]-1,aa[2]))/86400000)+1; };
+  const drive = u => { try { const x = new URL(u); return x.protocol === 'https:' ? x.href : ''; } catch (_) { return ''; } };
+  return { titulo: d.nome, sub: `${d.escola}${d.unidade ? ' · ' + d.unidade : ''}`, voltar: ['#/ferias','Voltar para Férias e Afastamentos'],
+    acoes: html`${gestores ? html`<button class="btn-primary" data-act="nova-ferias" data-id="${d.id}">+ Período de férias</button><button data-act="novo-afastamento" data-id="${d.id}">+ Afastamento</button>` : ''}<button data-act="emitir-extrato" data-id="${d.id}">Emitir extrato / PDF</button>`,
+    corpo: html`<div class="grid g-kpi"><div class="card"><span class="muted">Direito</span><div class="big">60 dias</div></div><div class="card"><span class="muted">Gozados</span><div class="big">${p.gozados} dias</div></div><div class="card"><span class="muted">Saldo</span><div class="big">${p.saldo} dias</div></div><div class="card"><span class="muted">Períodos</span><div class="big">${p.quantidade} / 6</div></div></div>
+      <section class="card mt"><h2>Períodos de férias</h2>${p.periodos.length ? html`<div class="tablewrap"><table><thead><tr><th>Início</th><th>Fim</th><th>Dias corridos</th><th>Documento</th><th>Observação</th>${gestores ? html`<th class="no-print">Ações</th>` : ''}</tr></thead><tbody>${p.periodos.map(x => html`<tr><td>${fmtData(x.data_inicio)}</td><td>${fmtData(x.data_fim)}</td><td>${dias(x.data_inicio,x.data_fim)}</td><td>${drive(x.link_drive) ? html`<a href="${drive(x.link_drive)}" target="_blank" rel="noopener">Abrir Drive</a>` : '–'}</td><td>${x.observacao || '–'}</td>${gestores ? html`<td class="no-print"><button class="btn-sm" data-act="editar-ferias" data-periodo="${x.id}" data-diretor="${d.id}">Editar</button> <button class="btn-sm btn-danger" data-act="remover-ferias" data-id="${x.id}">Remover</button></td>` : ''}</tr>`)}</tbody></table></div>` : vazio('Nenhum período lançado')}</section>
+      <section class="card mt"><h2>Outros afastamentos</h2>${a.length ? html`<div class="tablewrap"><table><thead><tr><th>Tipo</th><th>Início</th><th>Fim</th><th>Dias úteis</th><th>Observação</th>${gestores ? html`<th class="no-print">Ações</th>` : ''}</tr></thead><tbody>${a.map(x => html`<tr><td>${x.tipo}</td><td>${fmtData(x.data_inicio)}</td><td>${fmtData(x.data_fim)}</td><td>${x.dias_uteis}</td><td>${x.observacao || '–'}</td>${gestores ? html`<td class="no-print"><button class="btn-sm btn-danger" data-act="del-afastamento" data-id="${x.id}">Remover</button></td>` : ''}</tr>`)}</tbody></table></div>` : vazio('Nenhum afastamento registrado')}</section>` };
+}
+
 async function viewAdmin() {
-  const [cfg, aud] = await Promise.all([api('/config'), api('/auditoria')]);
+  const [cfg, aud, integracoes] = await Promise.all([api('/config'), api('/auditoria'), api('/integracoes/saude')]);
   return { titulo: 'Administração', crumbs: [['#/', 'Visão Geral'], [null, 'Administração']], corpo: html`    ${isAdmin() ? html`<section class="card mt"><h2>Parâmetros</h2><p>Dias para “vence em breve”: <b>${cfg.dias_vence_em_breve}</b> · Periodicidade do consolidado: <b>${cfg.periodicidade_consolidado}</b></p>
     <button data-act="config">Alterar</button> <button data-act="novo-tipo">+ Tipo de demanda</button></section>` : ''}
+    <section class="card mt"><h2>Saúde das integrações</h2><p class="small muted">DIPE e Apps Script permanecem sem sincronização ativa até haver contrato e autorização.</p><div class="tablewrap"><table><thead><tr><th>Fonte</th><th>Estado</th><th>Última execução</th><th>Leitura</th><th></th></tr></thead><tbody>${integracoes.map(i => html`<tr><td>${i.fonte}</td><td>${i.habilitada ? 'Configurada' : 'Desativada'}</td><td>${i.ultima_execucao ? fmtDataHora(i.ultima_execucao.inicio_em) : 'Sem execução'}</td><td>${i.ultima_execucao?.erro || '–'}</td><td>${i.fonte !== 'ferias' ? html`<button class="btn-sm" data-act="sync-fonte" data-fonte="${i.fonte}">Sincronizar agora</button>` : ''}</td></tr>`)}</tbody></table></div></section>
     <section class="card mt"><h2>Histórico de alterações (últimos 300)</h2><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Ação</th><th>Entidade</th></tr></thead><tbody>
     ${aud.map(a => html`<tr><td>${fmtDataHora(a.em)}</td><td>${a.acao}</td><td>${a.entidade} #${a.entidade_id ?? ''}</td></tr>`)}</tbody></table></div></section>` };
 }
@@ -456,6 +483,65 @@ async function campoSetor(valorId) {
 }
 
 const acoes = {
+  async logout() { await api('/auth/logout',{method:'POST',body:{}}); state.user=null; state.units=[];state.sectors=[];state.tipos=[];render(); },
+  async 'nova-escola'() {
+    await formDialog({ titulo: 'Cadastrar escola', enviar: x => api('/ferias/escolas',{method:'POST',body:{...x,unidade_id:x.unidade_id?Number(x.unidade_id):null}}), campos:[
+      {name:'nome',label:'Nome da escola',required:true,full:true},{name:'municipio',label:'Município'},
+      {name:'unidade_id',label:'Unidade de referência',type:'select',vazio:'— não vinculada —',options:state.units.map(u=>[u.id,`${u.sigla} · ${u.nome}`])}] });
+  },
+  async 'novo-diretor'() {
+    const escolas=await api('/ferias/escolas');
+    if(!escolas.length) throw new Error('Cadastre uma escola antes de incluir diretores.');
+    await formDialog({titulo:'Cadastrar diretor',enviar:x=>api('/ferias/diretores',{method:'POST',body:{...x,escola_id:Number(x.escola_id)}}),campos:[
+      {name:'nome',label:'Nome do diretor',required:true,full:true},{name:'email',label:'E-mail institucional',type:'email'},
+      {name:'escola_id',label:'Escola',type:'select',required:true,options:escolas.map(e=>[e.id,e.nome])}]});
+  },
+  async 'nova-ferias'(el,d) {
+    await formDialog({titulo:'Lançar período de férias',enviar:x=>api('/ferias/periodos',{method:'POST',body:{...x,diretor_id:Number(d.id)}}),campos:[
+      {name:'data_inicio',label:'Início',type:'date',required:true},{name:'data_fim',label:'Fim',type:'date',required:true},
+      {name:'link_drive',label:'Link do Google Drive',type:'url',full:true},{name:'observacao',label:'Observação',type:'textarea',full:true}]});
+  },
+  async 'editar-ferias'(el,d) {
+    const r=await api('/ferias/periodos?diretor_id='+d.diretor);const x=r.periodos.find(p=>p.id===Number(d.periodo));if(!x)throw new Error('Período não encontrado.');
+    await formDialog({titulo:'Editar período de férias',valores:x,enviar:v=>api('/ferias/periodos/'+x.id,{method:'PUT',body:v}),campos:[
+      {name:'data_inicio',label:'Início',type:'date',required:true},{name:'data_fim',label:'Fim',type:'date',required:true},
+      {name:'link_drive',label:'Link do Google Drive',type:'url',full:true},{name:'observacao',label:'Observação',type:'textarea',full:true}]});
+  },
+  async 'novo-afastamento'(el,d) {
+    await formDialog({titulo:'Registrar outro afastamento',enviar:x=>api('/ferias/afastamentos',{method:'POST',body:{...x,feriados:String(x.feriados||'').split(',').map(v=>v.trim()).filter(Boolean),diretor_id:Number(d.id)}}),campos:[
+      {name:'tipo',label:'Tipo (ex.: luto)',required:true},{name:'data_inicio',label:'Início',type:'date',required:true},{name:'data_fim',label:'Fim',type:'date',required:true},
+      {name:'feriados',label:'Feriados no período (AAAA-MM-DD, separados por vírgula)',hint:'Opcional; fins de semana já são excluídos.',full:true},{name:'observacao',label:'Observação',type:'textarea',full:true}]});
+  },
+  async 'nova-lote'() {
+    await formDialog({titulo:'Aplicar período a todos os diretores',rotuloOk:'Aplicar lote',enviar:async x=>{
+      const feriados=String(x.feriados||'').split(',').map(v=>v.trim()).filter(Boolean); const r=await api('/ferias/lotes',{method:'POST',body:{...x,feriados}});
+      if(r.rejeitados.length) toast(`Aplicado a ${r.aplicados}; ${r.rejeitados.length} diretor(es) ficaram de fora por limite/saldo.`,true);
+    },campos:[{name:'nome',label:'Identificação do lote',required:true,default:'Período de férias'},
+      {name:'data_inicio',label:'Início',type:'date',required:true},{name:'data_fim',label:'Fim',type:'date',required:true},
+      {name:'link_drive',label:'Link do Drive (opcional)',type:'url',full:true},{name:'observacao',label:'Observação',type:'textarea',full:true}]});
+  },
+  async 'editar-lote'(el,d) {
+    const l=(await api('/ferias/lotes')).find(x=>x.id===Number(d.id)); if(!l)throw new Error('Lote não encontrado.');
+    await formDialog({titulo:'Editar todos os períodos do lote',valores:{nome:l.nome,data_inicio:l.data_inicio,data_fim:l.data_fim,observacao:l.observacao||''},
+      enviar:x=>api('/ferias/lotes/'+d.id,{method:'PUT',body:x}),campos:[{name:'nome',label:'Identificação',required:true},
+        {name:'data_inicio',label:'Início',type:'date',required:true},{name:'data_fim',label:'Fim',type:'date',required:true},
+        {name:'observacao',label:'Observação',type:'textarea',full:true}],
+      extra:html`<p class="hint">A alteração inteira é recusada se algum diretor ultrapassar o limite, saldo ou tiver sobreposição.</p>`});
+  },
+  async 'remover-lote'(el,d) { if(await confirmar('Remover o lote e todos os períodos vinculados?')) { await api('/ferias/lotes/'+d.id,{method:'DELETE'}); render(); } },
+  async 'remover-ferias'(el,d) { if(await confirmar('Remover este período de férias?')) { await api('/ferias/periodos/'+d.id,{method:'DELETE'}); render(); } },
+  async 'del-afastamento'(el,d) { if(await confirmar('Remover este afastamento?')) { await api('/ferias/afastamentos/'+d.id,{method:'DELETE'}); render(); } },
+  async 'emitir-extrato'(el,d) {
+    const w=window.open('about:blank','_blank');
+    const r=await api('/ferias/extratos',{method:'POST',body:{diretor_id:Number(d.id)}});
+    const url='/ferias-extrato.html?codigo='+encodeURIComponent(r.codigo);
+    if(w) w.location.replace(url); else toast(`Extrato emitido. Código de autenticidade: ${r.codigo}`);
+  },
+  async 'emitir-relatorio'() {
+    const w=window.open('about:blank','_blank');const r=await api('/ferias/relatorios',{method:'POST',body:{}});
+    if(w)w.location.replace('/ferias-extrato.html?codigo='+encodeURIComponent(r.codigo));else toast(`Relatório emitido. Código: ${r.codigo}`);
+  },
+  async 'sync-fonte'(el,d) { const r=await api(`/integracoes/${d.fonte}/sincronizar`,{method:'POST',body:{}}); toast(r.ok?'Sincronização concluída.':r.erro,true); },
   async 'nova-demanda'(el, d) {
     const sid = d.sector;
     await formDialog({ titulo: 'Nova demanda', enviar: x => api('/demandas', { method: 'POST', body: { ...x, sector_id: Number(sid) } }),
@@ -635,7 +721,7 @@ function shell(pagina, rota) {
   const nav = (u.perfil === 'coord_setor' ? item('#/setor/' + u.sector_id, 'Meu setor', 'home', emUnidades) : item('#/', 'Painel Geral', 'grid', rota === '#/')) +
     (state.units.length > 0 && u.perfil !== 'coord_setor' ? item('#/unidades', 'Unidades e setores', 'building', emUnidades) : '') +
     item('#/lista', 'Demandas', 'list', rota === '#/lista') + item('#/alertas', 'Alertas', 'bell', rota === '#/alertas', alertasBadge) +
-    item('#/contatos', 'Contatos', 'phone', rota === '#/contatos') + item('#/relatorios', 'Relatórios', 'doc', rota === '#/relatorios') +
+    item('#/ferias', 'Férias e Afastamentos', 'book', rota.startsWith('#/ferias')) + item('#/contatos', 'Contatos', 'phone', rota === '#/contatos') + item('#/relatorios', 'Relatórios', 'doc', rota === '#/relatorios') +
     (['admin', 'superintendente'].includes(u.perfil) ? item('#/admin', 'Administração', 'gear', rota === '#/admin') : '');
   const crumbs = (pagina.crumbs || []).map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : esc(t))).join(' › ');
   return html`<div class="app"><aside class="rail" aria-label="Navegação principal">
@@ -646,7 +732,7 @@ function shell(pagina, rota) {
     </aside>
     <div class="main">
       <header class="mtop"><div class="search"><span class="s-ic">${ico('search')}</span><input id="busca" type="search" placeholder="Buscar setor, processo, servidor…" aria-label="Busca global" autocomplete="off"><div id="resultados" class="results hidden"></div></div>
-        <div class="who-top"><b>SRE Metropolitana A</b><span>Painel de Gestão</span></div></header>
+        <div class="who-top"><b>SRE Metropolitana A</b><span>Painel de Gestão</span>${state.authEnabled ? html`<button class="btn-sm" data-act="logout">Sair</button>` : ''}</div></header>
       <main id="main" class="content" tabindex="-1">
         ${pagina.voltar ? html`<a class="back" href="${pagina.voltar[0]}">${ico('left')} ${pagina.voltar[1]}</a>` : (crumbs ? html`<div class="crumbs">${new Raw(crumbs)}</div>` : '')}
         <div class="page-head"><div>${pagina.tags ? html`<div class="tags">${pagina.tags.map(([c, t]) => html`<span class="pill ${c}">${t}</span>`)}</div>` : ''}<h1>${pagina.titulo}</h1>${pagina.sub ? html`<div class="sub">${pagina.sub}</div>` : ''}</div>
@@ -660,9 +746,15 @@ let seq = 0;
 async function render() {
   const app = $('#app'); const mine = ++seq;
   const h = location.hash || '#/'; const [rota, query] = h.split('?'); const partes = rota.replace('#/', '').split('/');
+  if (state.authEnabled === false) { try { state.authEnabled = (await api('/auth/status')).habilitada; } catch (_) {} }
   if (!state.user) {
     try { state.user = await api('/me'); await refreshEstrutura(); await carregaAlertas(); }
-    catch (e) { state.user = null; app.innerHTML = html`<div class="content"><div class="error" role="alert">Não foi possível carregar o painel: ${e.message}</div></div>`.s; return; }
+    catch (e) {
+      state.user = null;
+      if (state.authEnabled) app.innerHTML = html`<main class="content" style="max-width:520px;margin:10vh auto"><section class="card"><h1>Acesso ao Painel</h1><p class="muted">Entre com sua conta institucional autorizada.</p><div id="login-erro"></div><form data-form="login"><div class="field"><label for="login-email">E-mail</label><input id="login-email" type="email" name="email" required autocomplete="username"></div><div class="field"><label for="login-senha">Senha</label><input id="login-senha" type="password" name="senha" required autocomplete="current-password"></div><button class="btn-primary">Entrar</button></form></section></main>`.s;
+      else app.innerHTML = html`<div class="content"><div class="error" role="alert">Não foi possível carregar o painel: ${e.message}</div></div>`.s;
+      return;
+    }
   }
   const hist = $('#main'); if (!hist) app.innerHTML = html`<div class="app"><div class="rail" style="visibility:hidden"></div><div class="main"><main id="main" class="content">${skeleton()}</main></div></div>`.s;
   else hist.innerHTML = skeleton().s;
@@ -678,6 +770,7 @@ async function render() {
     else if (a === 'alertas') pagina = await viewAlertas();
     else if (a === 'contatos') pagina = await viewContatos(query);
     else if (a === 'relatorios') pagina = await viewRelatorios();
+    else if (a === 'ferias') pagina = await viewFerias(b);
     else if (a === 'admin') pagina = await viewAdmin();
     else pagina = { titulo: 'Página não encontrada', corpo: vazio('Página não encontrada') };
   } catch (e) { pagina = { titulo: 'Ops', corpo: html`<div class="error" role="alert">${e.message}</div>` }; }
@@ -725,7 +818,8 @@ document.addEventListener('submit', async ev => {
   ev.preventDefault(); const tipo = f.dataset.form; const v = Object.fromEntries(new FormData(f));
   const erro = m => toast(m, true);
   try {
-    if (tipo === 'filtros') { const p = new URLSearchParams(Object.entries(v).filter(([, x]) => x)); irPara('#/lista?' + p); }
+    if (tipo === 'login') { await api('/auth/login',{method:'POST',body:v}); state.user=null; await render(); }
+    else if (tipo === 'filtros') { const p = new URLSearchParams(Object.entries(v).filter(([, x]) => x)); irPara('#/lista?' + p); }
     else if (tipo === 'contatos') irPara('#/contatos?q=' + encodeURIComponent(v.q));
   } catch (e) { erro(e.message); }
 });

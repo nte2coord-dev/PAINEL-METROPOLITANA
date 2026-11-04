@@ -1,0 +1,5 @@
+'use strict';
+const statusBox=document.getElementById('status');
+const lista=document.getElementById('lista');
+const texto=(parent,tag,value,cls='')=>{const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=String(value??'');parent.append(e);return e;};
+(async()=>{try{const r=await fetch('/api/ferias/publico/',{headers:{Accept:'application/json'}});if(!r.ok)throw new Error('Não foi possível carregar a consulta.');const dados=await r.json();statusBox.textContent=`${dados.length} diretor(es) na consulta pública.`;for(const d of dados){const card=document.createElement('section');card.className='card';texto(card,'h2',d.diretor);texto(card,'p',d.escola);texto(card,'p',`Saldo restante: ${d.saldo} dias`,'pill solid');const h=document.createElement('h3');h.textContent='Períodos';card.append(h);if(!d.periodos.length)texto(card,'p','Nenhum período registrado.');for(const p of d.periodos)texto(card,'p',`${p.data_inicio.split('-').reverse().join('/')} a ${p.data_fim.split('-').reverse().join('/')} — ${p.dias} dia(s)`);lista.append(card);}}catch(e){statusBox.textContent=e.message;statusBox.classList.add('error');}})();
